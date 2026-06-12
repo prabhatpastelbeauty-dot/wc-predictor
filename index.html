@@ -468,6 +468,10 @@ body{display:flex;justify-content:center;overflow:hidden;}
           <div class="settings-row">
             <div><div class="s-label" id="s-name-display">—</div><div class="s-sub" id="s-role-display">Member</div></div>
           </div>
+          <div class="settings-row" style="cursor:pointer;" onclick="togglePlaying()">
+            <div><div class="s-label">I'm playing this league</div><div class="s-sub">Turn off if you're admin-only (not predicting)</div></div>
+            <div class="toggle" id="playing-toggle"></div>
+          </div>
           <div class="settings-row" style="cursor:pointer;" onclick="doLogout()">
             <div class="s-label" style="color:var(--red);">Sign Out</div>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -616,6 +620,16 @@ const LS = {
   set:(k,v)=>localStorage.setItem(k,JSON.stringify(v)),
   rm: (k)=>localStorage.removeItem(k)
 };
+
+// ══════════════════════════════════════════════════════
+//  BAKED-IN SUPABASE CONFIG
+//  Fill these in once (admin's Supabase Project URL + Publishable key)
+//  so EVERY device — including new friends — connects automatically.
+//  After editing, just redeploy on Vercel (commit the file change).
+// ══════════════════════════════════════════════════════
+const BAKED_SB_URL = 'https://auyongupjwtvawwkexwq.supabase.co';
+const BAKED_SB_KEY = 'sb_publishable_ERlOkuJQjpGEJui1osZSPg_ePrJCuRn';
+
 
 // ══════════════════════════════════════════════════════
 //  DEFAULT FIXTURES (admin can edit/add/remove all of these)
@@ -2040,8 +2054,14 @@ function withTimeout(promise, ms){
 //  SUPABASE
 // ══════════════════════════════════════════════════════
 async function initSB(){
-  const url = LS.get('wcp_sb_url');
-  const key = LS.get('wcp_sb_key');
+  let url = LS.get('wcp_sb_url');
+  let key = LS.get('wcp_sb_key');
+  if(!url||!key){
+    if(BAKED_SB_URL.startsWith('http') && BAKED_SB_KEY.length>20){
+      url=BAKED_SB_URL; key=BAKED_SB_KEY;
+      LS.set('wcp_sb_url',url); LS.set('wcp_sb_key',key);
+    }
+  }
   if(!url||!key){ setSyncUI('err','Offline mode'); return false; }
   try{
     const mod = await withTimeout(import('https://esm.sh/@supabase/supabase-js@2'), 8000);
@@ -2211,7 +2231,7 @@ async function doCreate(){
 
   const uid=btoa(code+user+Date.now()).replace(/[^a-z0-9]/gi,'').slice(0,16);
   LEAGUE={code,name:lname,fee,currency:cur,adminId:uid};
-  ME={id:uid,name,username:user,pin,role:'admin',preds:{}};
+  ME={id:uid,name,username:user,pin,role:'admin',playing:false,preds:{}};
   FIXTURES = DEFAULT_FIXTURES.map(f=>({...f}));
 
   // Save locally always (offline fallback)
@@ -2254,6 +2274,7 @@ async function launchApp(){
   renderAll();
   subscribeRT();
   setInterval(()=>pullEverything().then(renderAll), 30000);
+  setInterval(fetchNews, NEWS_CACHE_MS);
 }
 
 // ══════════════════════════════════════════════════════
@@ -2276,7 +2297,10 @@ function getMembers(){
   return [{...ME}];
 }
 function getSorted(){
-  return getMembers().map(u=>{
+  return getMembers().filter(u=>{
+    const eff = u.id===ME.id ? ME.playing : u.playing;
+    return eff!==false;
+  }).map(u=>{
     const preds = u.id===ME.id ? {...(u.preds||{}),...(ME.preds||{})} : (u.preds||{});
     const s=calcUser({preds});
     return {...u,preds,...s};
@@ -2284,6 +2308,7 @@ function getSorted(){
 }
 function myStats(){ return calcUser({preds:ME.preds||{}}); }
 function myRank(){
+  if(ME.playing===false) return '—';
   const s=getSorted();
   const i=s.findIndex(u=>u.id===ME.id);
   return i===-1?'—':i+1;
@@ -2322,7 +2347,8 @@ function renderPool(){
 
 function renderHomeNext(){
   const fixtures=getFixtures();
-  const next=fixtures.find(f=>!f.result);
+  const pinned=fixtures.find(f=>f.pinned && !f.result);
+  const next = pinned || fixtures.find(f=>!f.result);
   document.getElementById('home-next').innerHTML=next?buildMC(next):'<div class="empty"><div class="empty-icon">✅</div>All matches complete!</div>';
 }
 
@@ -2361,15 +2387,62 @@ function renderTable(){
   }).join('');
 }
 
+// ══════════════════════════════════════════════════════
+//  NEWS FEED — free, no API key needed
+//  Uses Google News RSS via the free rss2json.com converter
+// ══════════════════════════════════════════════════════
+const NEWS_CACHE_KEY='wcp_news_cache';
+const NEWS_CACHE_MS=60*60*1000; // 1 hour
+
 function renderNews(){
-  const items=[
-    {tag:'Team News', hl:"Mbappe confirms fitness — France ready for opener vs Australia", t:'2h ago'},
-    {tag:'Injury',    hl:"Neymar races to be fit for Brazil opener. Medical team cautious.", t:'5h ago'},
-    {tag:'Preview',   hl:"Argentina vs Canada: Messi eyes record-breaking World Cup start", t:'8h ago'},
-  ];
-  document.getElementById('news-section').innerHTML=items.map(n=>
-    `<div class="news-item"><div class="news-tag">${n.tag}</div><div class="news-hl">${n.hl}</div><div class="news-time">${n.t}</div></div>`
+  const cache=LS.get(NEWS_CACHE_KEY);
+  if(cache && cache.items && cache.items.length){
+    paintNews(cache.items);
+  } else {
+    document.getElementById('news-section').innerHTML='<div class="empty">Loading news...</div>';
+  }
+  if(!cache || (Date.now()-cache.ts)>NEWS_CACHE_MS){
+    fetchNews();
+  }
+}
+
+function paintNews(items){
+  document.getElementById('news-section').innerHTML=items.slice(0,6).map(n=>
+    `<a href="${n.link}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;display:block;">
+      <div class="news-item">
+        <div class="news-tag">${n.source||'World Cup News'}</div>
+        <div class="news-hl">${n.title}</div>
+        <div class="news-time">${n.time}</div>
+      </div>
+    </a>`
   ).join('');
+}
+
+async function fetchNews(){
+  try{
+    const rssUrl=encodeURIComponent('https://news.google.com/rss/search?q=FIFA+World+Cup+2026&hl=en-US&gl=US&ceid=US:en');
+    const res=await withTimeout(fetch(`https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}`), 10000);
+    if(!res.ok) throw new Error('fetch failed');
+    const data=await res.json();
+    if(data.status!=='ok'||!data.items) throw new Error('bad response');
+    const items=data.items.map(it=>{
+      const d=new Date(it.pubDate);
+      const diffH=Math.max(1,Math.round((Date.now()-d.getTime())/3600000));
+      const time = diffH<24 ? `${diffH}h ago` : `${Math.round(diffH/24)}d ago`;
+      let source='World Cup News';
+      const m=it.title.match(/-\s*([^-]+)$/);
+      if(m) source=m[1].trim();
+      const title=it.title.replace(/\s*-\s*[^-]+$/,'');
+      return {title, link:it.link, time, source};
+    });
+    LS.set(NEWS_CACHE_KEY, {ts:Date.now(), items});
+    paintNews(items);
+  }catch(e){
+    console.error('news fetch failed',e);
+    if(!LS.get(NEWS_CACHE_KEY)){
+      document.getElementById('news-section').innerHTML='<div class="empty">Couldn\'t load news right now.</div>';
+    }
+  }
 }
 
 function renderAudit(){
@@ -2379,13 +2452,15 @@ function renderAudit(){
   }
   const icons={
     league_created:'🏁', fixture_added:'➕', fixture_edited:'✏️', fixture_deleted:'🗑️',
-    fixture_locked:'🔒', fixture_unlocked:'🔓', result_entered:'🏆',
-    member_added:'👤', member_removed:'❌', fee_changed:'💰'
+    fixture_locked:'🔒', fixture_unlocked:'🔓', result_entered:'🏆', fixture_pinned:'📌',
+    member_added:'👤', member_removed:'❌', fee_changed:'💰',
+    member_promoted:'⭐', member_demoted:'⬇️', playing_changed:'🎮'
   };
   const colors={
     league_created:'#dcfce7', fixture_added:'#dbeafe', fixture_edited:'#fef3c7', fixture_deleted:'#fee2e2',
-    fixture_locked:'#fef3c7', fixture_unlocked:'#dcfce7', result_entered:'#fef3c7',
-    member_added:'#dbeafe', member_removed:'#fee2e2', fee_changed:'#ede9fe'
+    fixture_locked:'#fef3c7', fixture_unlocked:'#dcfce7', result_entered:'#fef3c7', fixture_pinned:'#dbeafe',
+    member_added:'#dbeafe', member_removed:'#fee2e2', fee_changed:'#ede9fe',
+    member_promoted:'#fef3c7', member_demoted:'#f0f4f8', playing_changed:'#ede9fe'
   };
   document.getElementById('audit-wrap').innerHTML=AUDIT.map(a=>{
     const icon=icons[a.action]||'📌';
@@ -2437,24 +2512,62 @@ function renderSettings(){
     <div class="code-label">League Code</div>
     <div class="code-val">${LEAGUE.code}</div>
     <div class="code-sub">Members log in with this code + their own username & PIN.<br>${ME.role==='admin'?'Add members below.':'Ask your admin for your login.'}</div>`;
+
+  // "Also playing" toggle (shown to everyone, most relevant for admins)
+  const playToggle=document.getElementById('playing-toggle');
+  if(playToggle) playToggle.classList.toggle('on', ME.playing!==false);
+}
+
+async function togglePlaying(){
+  ME.playing = ME.playing===false ? true : false;
+  LS.set('wcp_me_'+ME.id, ME);
+  const lg=LS.get('wcp_lg_'+LEAGUE.code);
+  if(lg){ const lm=(lg.members||[]).find(x=>x.id===ME.id); if(lm) lm.playing=ME.playing; }
+  renderAll();
+  await pushMyPreds();
+  await logAudit('playing_changed', `${ME.playing===false?'opted out of':'opted into'} the prediction league`);
+  renderAudit();
+  toast(ME.playing===false?'You are now spectating (not on leaderboard)':'You are now playing!');
 }
 
 function renderMembersList(){
   const members=getMembers();
   if(!members.length){ document.getElementById('members-list').innerHTML='<div class="empty">No members yet.</div>'; return; }
+  const admins=members.filter(m=>m.role==='admin').length;
   document.getElementById('members-list').innerHTML=members.map(m=>{
     const ini=m.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-    const canDel = m.id!==ME.id && m.role!=='admin';
-    return `<div class="member-row">
+    const isSelf = m.id===ME.id;
+    const canDel = !isSelf && m.role!=='admin';
+    const canDemote = m.role==='admin' && !isSelf && admins>1;
+    const canPromote = m.role!=='admin';
+    return `<div class="member-row" style="flex-wrap:wrap;">
       <div class="member-av">${ini}</div>
       <div class="member-info">
-        <div class="member-nm">${m.name}${m.role==='admin'?' ★':''}</div>
-        <div class="member-meta">@${m.username}</div>
+        <div class="member-nm">${m.name}${m.role==='admin'?' ★':''}${isSelf?' <span style="font-size:10px;color:var(--muted)">(you)</span>':''}</div>
+        <div class="member-meta">@${m.username} · ${m.playing===false?'Not playing':'Playing'}</div>
       </div>
       <div class="member-pin">PIN ${m.pin}</div>
+      ${canPromote?`<button class="member-del" style="background:var(--amber-bg);color:var(--amber);width:auto;padding:0 8px;font-size:11px;font-weight:700;" onclick="toggleAdminRole('${m.id}',true)">Make Admin</button>`:''}
+      ${canDemote?`<button class="member-del" style="background:var(--bg4);color:var(--text2);width:auto;padding:0 8px;font-size:11px;font-weight:700;" onclick="toggleAdminRole('${m.id}',false)">Remove Admin</button>`:''}
       ${canDel?`<button class="member-del" onclick="removeMember('${m.id}')">✕</button>`:''}
     </div>`;
   }).join('');
+}
+
+async function toggleAdminRole(id, makeAdmin){
+  const m=MEMBERS.find(x=>x.id===id) || (id===ME.id?ME:null); if(!m) return;
+  m.role = makeAdmin?'admin':'member';
+  if(makeAdmin) m.playing = m.playing!==false; // keep their playing status
+  const lg=LS.get('wcp_lg_'+LEAGUE.code);
+  if(lg){
+    const lm=(lg.members||[]).find(x=>x.id===id);
+    if(lm) lm.role=m.role;
+  }
+  renderMembersList(); renderTable();
+  await pushMember(m);
+  await logAudit(makeAdmin?'member_promoted':'member_demoted', `${makeAdmin?'made':'removed'} ${m.name} ${makeAdmin?'an admin':'as admin'}`);
+  renderAudit();
+  toast(makeAdmin?`✅ ${m.name} is now an admin`:`${m.name} is no longer an admin`);
 }
 
 function renderFixturesAdminList(){
@@ -2535,7 +2648,7 @@ async function saveMember(){
   if(getMembers().some(m=>m.username===user)){toast('Username already exists');return;}
 
   const uid=btoa(LEAGUE.code+user+Date.now()).replace(/[^a-z0-9]/gi,'').slice(0,16);
-  const newMember={id:uid,name,username:user,pin,role:'member',preds:{}, league_code:LEAGUE.code};
+  const newMember={id:uid,name,username:user,pin,role:'member',playing:true,preds:{}, league_code:LEAGUE.code};
   MEMBERS.push(newMember);
 
   // local fallback storage
@@ -2634,6 +2747,21 @@ async function removeFixture(id){
   renderAudit();
 }
 
+async function togglePin(id){
+  FIXTURES=getFixtures();
+  const f=FIXTURES.find(x=>x.id===id); if(!f) return;
+  const wasPinned=f.pinned;
+  // unpin all others first
+  FIXTURES.forEach(x=>x.pinned=false);
+  f.pinned=!wasPinned;
+  saveFixturesLocal();
+  renderAll();
+  for(const fx of FIXTURES) await pushFixture(fx);
+  if(f.pinned) await logAudit('fixture_pinned', `set ${f.nA} vs ${f.nB} as the featured "Next Match" on Home`);
+  renderAudit();
+  toast(f.pinned?'📌 Pinned to Home':'Unpinned');
+}
+
 async function toggleLock(id){
   FIXTURES=getFixtures();
   const f=FIXTURES.find(x=>x.id===id); if(!f) return;
@@ -2664,7 +2792,7 @@ function buildMC(fix){
     pill=`<span class="pill p-locked">🔒 Locked</span>`;
   } else {
     ctr=`<div class="mc-vs">vs</div>`;
-    pill=`<span class="pill p-open">OPEN</span>`;
+    pill = fix.pinned ? `<span class="pill p-open">📌 NEXT UP</span>` : `<span class="pill p-open">OPEN</span>`;
   }
 
   let predRow='';
@@ -2697,6 +2825,7 @@ function buildMC(fix){
   if(isAdmin){
     if(!done){
       actions+=`<button class="mc-act ${fix.locked?'act-edit':'act-result'}" onclick="toggleLock('${fix.id}')">${fix.locked?'🔓 Unlock':'🔒 Lock Voting'}</button>`;
+      actions+=`<button class="mc-act ${fix.pinned?'act-edit':'act-predicted'}" onclick="togglePin('${fix.id}')">${fix.pinned?'📌 Unpin':'📌 Pin to Home'}</button>`;
     }
     if(!done && fix.locked){
       actions+=`<button class="mc-act act-result" onclick="openResult('${fix.id}')" style="flex-basis:100%;">Enter Final Result</button>`;
