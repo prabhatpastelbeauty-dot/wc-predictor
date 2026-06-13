@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>⚽ WC Predictor</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a2e14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="WC Predictor">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -373,7 +380,11 @@ body{display:flex;justify-content:center;overflow:hidden;}
         <div class="stat-c"><div class="stat-l">Points</div><div class="stat-v v-amber" id="d-pts">0</div></div>
         <div class="stat-c"><div class="stat-l">Rank</div><div class="stat-v v-blue" id="d-rank">#—</div></div>
         <div class="stat-c"><div class="stat-l">Exact Scores</div><div class="stat-v v-green" id="d-exact">0</div></div>
-        <div class="stat-c"><div class="stat-l">Accuracy</div><div class="stat-v v-purple" id="d-acc">—%</div></div>
+        <div class="stat-c">
+          <div class="stat-l">Hit Rate</div>
+          <div class="stat-v v-purple" id="d-acc">—%</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">scored any points</div>
+        </div>
       </div>
 
       <div id="reminder-banner"></div>
@@ -463,6 +474,16 @@ body{display:flex;justify-content:center;overflow:hidden;}
 
         <div class="sec-label">League</div>
         <div class="code-banner" id="code-banner"></div>
+
+        <div class="sec-label" id="install-section-label" style="display:none;">Install App</div>
+        <div class="settings-group" id="install-section" style="display:none;">
+          <div class="settings-row" style="cursor:pointer;" onclick="installApp()">
+            <div><div class="s-label">📲 Install App</div><div class="s-sub" id="install-sub">Add to your home screen for quick access</div></div>
+            <div class="icon-btn" style="background:var(--green-bg);color:var(--green);">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </div>
+          </div>
+        </div>
 
         <div class="sec-label">Appearance</div>
         <div class="settings-group">
@@ -2525,7 +2546,7 @@ function renderTable(){
       <div class="lb-av" style="background:${col}18;color:${col}">${ini}</div>
       <div class="lb-info">
         <div class="lb-nm">${u.name}${isMe?' <span style="font-size:10px;font-weight:500;color:var(--muted)">(you)</span>':''}${u.role==='admin'?' <span style="font-size:10px;font-weight:500;color:var(--amber)">★ admin</span>':''}</div>
-        <div class="lb-det">${u.exact} exact · ${u.done?Math.round(u.correct/u.done*100):0}% accuracy</div>
+        <div class="lb-det">${u.exact} exact · ${u.done?Math.round(u.correct/u.done*100):0}% hit rate</div>
       </div>
       <div class="lb-pts">${u.total}</div>
     </div>`;
@@ -2817,6 +2838,8 @@ function renderSettings(){
 
   const remToggle=document.getElementById('reminders-toggle');
   if(remToggle) remToggle.classList.toggle('on', LS.get('wcp_reminders')===true);
+
+  showInstallSection();
 }
 
 async function togglePlaying(){
@@ -3342,7 +3365,7 @@ async function saveResult(){
 // ══════════════════════════════════════════════════════
 function exportResultsCSV(){
   const sorted=getSorted();
-  let csv='Rank,Name,Username,Points,Exact Scores,Correct Predictions,Matches Scored,Accuracy %\n';
+  let csv='Rank,Name,Username,Points,Exact Scores,Correct Predictions,Matches Scored,Hit Rate %\n';
   sorted.forEach((u,i)=>{
     const acc=u.done?Math.round(u.correct/u.done*100):0;
     csv+=`${i+1},"${u.name}",${u.username},${u.total},${u.exact},${u.correct},${u.done},${acc}\n`;
@@ -3623,6 +3646,69 @@ function renderQuizLeaderboard(){
 }
 
 // ══════════════════════════════════════════════════════
+//  PWA: INSTALL PROMPT + SERVICE WORKER
+// ══════════════════════════════════════════════════════
+let DEFERRED_INSTALL_PROMPT=null;
+
+function isStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+}
+function isIOS(){
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  DEFERRED_INSTALL_PROMPT=e;
+  showInstallSection();
+});
+window.addEventListener('appinstalled', ()=>{
+  DEFERRED_INSTALL_PROMPT=null;
+  hideInstallSection();
+  toast('🎉 App installed!');
+});
+
+function showInstallSection(){
+  const lbl=document.getElementById('install-section-label');
+  const sec=document.getElementById('install-section');
+  if(!lbl||!sec) return;
+  if(isStandalone()){ lbl.style.display='none'; sec.style.display='none'; return; }
+  if(DEFERRED_INSTALL_PROMPT || isIOS()){
+    lbl.style.display='block'; sec.style.display='block';
+    document.getElementById('install-sub').textContent = isIOS()
+      ? 'Tap Share → "Add to Home Screen"'
+      : 'Add to your home screen for quick access';
+  }
+}
+function hideInstallSection(){
+  const lbl=document.getElementById('install-section-label');
+  const sec=document.getElementById('install-section');
+  if(lbl) lbl.style.display='none';
+  if(sec) sec.style.display='none';
+}
+
+async function installApp(){
+  if(isIOS()){
+    toast('📲 Tap the Share icon, then "Add to Home Screen"');
+    return;
+  }
+  if(DEFERRED_INSTALL_PROMPT){
+    DEFERRED_INSTALL_PROMPT.prompt();
+    const {outcome}=await DEFERRED_INSTALL_PROMPT.userChoice;
+    if(outcome==='accepted') toast('🎉 Installing...');
+    DEFERRED_INSTALL_PROMPT=null;
+  } else {
+    toast('Open this page in Chrome to install');
+  }
+}
+
+function registerServiceWorker(){
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('/sw.js').catch(e=>console.error('SW registration failed',e));
+  }
+}
+
+// ══════════════════════════════════════════════════════
 //  NAV
 // ══════════════════════════════════════════════════════
 const PAGES=['home','predict','table','quiz','audit','settings'];
@@ -3649,6 +3735,7 @@ function hideSplash(){setTimeout(()=>document.getElementById('splash').classList
 // ══════════════════════════════════════════════════════
 window.addEventListener('load',async()=>{
   applyTheme();
+  registerServiceWorker();
   try{
     const myId=LS.get('wcp_my_id');
     const savedLg=LS.get('wcp_league');
