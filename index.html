@@ -18,6 +18,23 @@
   --pitch:linear-gradient(160deg,#0a2e14 0%,#0d3b1a 100%);
   --nav-h:64px; --safe-b:env(safe-area-inset-bottom,0px);
 }
+
+/* ─── DARK THEME ─────────────────────────────── */
+[data-theme="dark"] {
+  --bg:#0b0f17; --bg2:#11161f; --bg3:#161c28; --bg4:#1c2433; --card:#11161f;
+  --border:rgba(255,255,255,.07); --border2:rgba(255,255,255,.11);
+  --text:#eef2f9; --text2:#aab8cc; --muted:#6e7d96; --muted2:#48536a;
+  --green:#34d399; --green-bg:#0f2b22;
+  --red:#f87171; --red-bg:#2c1518;
+  --blue:#60a5fa; --blue-bg:#0f2138;
+  --amber:#fbbf24; --amber-bg:#2b2210;
+  --purple:#a78bfa;
+  --pitch:linear-gradient(160deg,#0d2818 0%,#081a10 100%);
+}
+[data-theme="dark"] body{background:#05070c;}
+[data-theme="dark"] .auth-hero{background:var(--pitch);}
+[data-theme="dark"] .sp-num, [data-theme="dark"] input, [data-theme="dark"] select{color:var(--text);}
+[data-theme="dark"] .pool-hero::after{opacity:.05;}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
 body{display:flex;justify-content:center;overflow:hidden;}
@@ -365,6 +382,7 @@ body{display:flex;justify-content:center;overflow:hidden;}
       <div id="home-pool"></div>
 
       <div class="sec-label">Next Match</div>
+      <div id="countdown-banner"></div>
       <div id="home-next"></div>
 
       <div class="sec-label">💡 Did You Know?</div>
@@ -434,6 +452,8 @@ body{display:flex;justify-content:center;overflow:hidden;}
         <div class="pg-sub">A new question every day — see what the boys picked!</div>
       </div>
       <div style="padding:12px 0 0;" id="quiz-wrap"></div>
+      <div class="sec-label">🧠 Quiz Leaderboard</div>
+      <div class="lb-card" id="quiz-lb-wrap" style="margin:0 12px;"></div>
     </div>
 
     <!-- SETTINGS -->
@@ -443,6 +463,14 @@ body{display:flex;justify-content:center;overflow:hidden;}
 
         <div class="sec-label">League</div>
         <div class="code-banner" id="code-banner"></div>
+
+        <div class="sec-label">Appearance</div>
+        <div class="settings-group">
+          <div class="settings-row" style="cursor:pointer;" onclick="toggleTheme()">
+            <div><div class="s-label">🌙 Dark Mode</div><div class="s-sub">Easier on the eyes at night</div></div>
+            <div class="toggle" id="theme-toggle"></div>
+          </div>
+        </div>
 
         <div class="sec-label">Reminders</div>
         <div class="settings-group">
@@ -2323,6 +2351,7 @@ async function launchApp(){
   subscribeRT();
   setInterval(()=>pullEverything().then(renderAll), 30000);
   setInterval(fetchNews, NEWS_CACHE_MS);
+  setInterval(renderCountdown, 30000);
   if(LS.get('wcp_reminders')===true) checkReminderNotification();
 }
 
@@ -2342,6 +2371,8 @@ function renderAll(){
   renderSettings();
   renderAudit();
   renderQuiz();
+  renderQuizLeaderboard();
+  renderCountdown();
   checkPredBadge();
   renderReminderBanner();
 }
@@ -2349,6 +2380,12 @@ function renderAll(){
 function getMembers(){
   if(MEMBERS.length) return MEMBERS;
   return [{...ME}];
+}
+function getPlayingCount(){
+  return getMembers().filter(u=>{
+    const eff = u.id===ME.id ? ME.playing : u.playing;
+    return eff!==false;
+  }).length || 1;
 }
 function getSorted(){
   return getMembers().filter(u=>{
@@ -2381,7 +2418,7 @@ function renderDash(){
 function renderPool(){
   if(!LEAGUE) return;
   const fee=LEAGUE.fee||0, cur=LEAGUE.currency||'NPR';
-  const members=getMembers().length||1;
+  const members=getPlayingCount();
   const total=fee*members;
   const pct=Math.min(100, members/6*100);
   document.getElementById('home-pool').innerHTML=`
@@ -2752,7 +2789,7 @@ function checkReminderNotification(){
 function renderSettings(){
   if(!ME||!LEAGUE) return;
   const fee=LEAGUE.fee||0, cur=LEAGUE.currency||'NPR';
-  const members=getMembers().length||1;
+  const members=getPlayingCount();
   document.getElementById('fee-val').value=fee;
   document.getElementById('cur-label').textContent=cur;
   document.getElementById('pool-calc-sub').textContent=`${members} member${members!==1?'s':''}`;
@@ -3082,6 +3119,14 @@ function buildMC(fix){
   const r=fix.result;
   const p=(ME.preds||{})[fix.id];
   const isAdmin=ME.role==='admin';
+  const allMembers=getMembers().filter(u=>{
+    const eff = u.id===ME.id ? ME.playing : u.playing;
+    return eff!==false;
+  });
+  const predictedCount=allMembers.filter(u=>{
+    const preds = u.id===ME.id ? ME.preds : (u.preds||{});
+    return !!(preds||{})[fix.id];
+  }).length;
 
   let ctr, pill;
   if(done){
@@ -3111,6 +3156,31 @@ function buildMC(fix){
     </div>`;
   }
 
+  // Everyone's picks — visible once voting is locked or result entered
+  let everyonePicks='';
+  if(fix.locked || done){
+    const rows=allMembers.map(u=>{
+      const preds = u.id===ME.id ? ME.preds : (u.preds||{});
+      const up=(preds||{})[fix.id];
+      if(!up) return `<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;"><span style="color:var(--text2);">${u.name}</span><span style="color:var(--muted2);">No pick</span></div>`;
+      const upPenTxt=up.pen?` (${up.pen==='A'?fix.nA:fix.nB} pens)`:'';
+      let upPts='';
+      if(done&&r){
+        const pts=fix.ko&&r.penWinner ? scorePen(up.sA,up.sB,up.pen,r.sA,r.sB,r.penWinner) : scoreReg(up.sA,up.sB,r.sA,r.sB);
+        upPts=`<span class="pts-chip pt${pts}" style="font-size:10px;padding:2px 6px;margin-left:6px;">${pts}pt${pts!==1?'s':''}</span>`;
+      }
+      const isMe=u.id===ME.id;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;">
+        <span style="color:var(--text2);font-weight:${isMe?'700':'500'};">${u.name}${isMe?' (you)':''}</span>
+        <span><span style="font-weight:700;">${up.sA}–${up.sB}${upPenTxt}</span>${upPts}</span>
+      </div>`;
+    }).join('');
+    everyonePicks=`<div style="padding:10px 14px;border-top:1px solid var(--border);">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:4px;">👥 Everyone's Picks</div>
+      ${rows}
+    </div>`;
+  }
+
   let actions='';
   if(!done&&!fix.locked){
     const cls=p?'act-predicted':'act-predict';
@@ -3120,6 +3190,15 @@ function buildMC(fix){
     actions+=`<button class="mc-act act-locked" disabled>🔒 Voting Locked</button>`;
   } else {
     actions+=`<button class="mc-act act-locked" disabled>✅ Result Entered</button>`;
+  }
+
+  let adminStatusRow='';
+  if(isAdmin && !done && !fix.locked){
+    const allIn = predictedCount===allMembers.length;
+    adminStatusRow=`<div style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-top:1px solid var(--border);background:${allIn?'var(--green-bg)':'var(--amber-bg)'};">
+      <span style="font-size:12px;font-weight:700;color:${allIn?'var(--green)':'var(--amber)'};">${allIn?'✅':'⏳'} ${predictedCount}/${allMembers.length} predicted</span>
+      ${!allIn?`<span style="font-size:11px;color:var(--muted);margin-left:auto;">${allMembers.filter(u=>{const preds=u.id===ME.id?ME.preds:(u.preds||{});return !(preds||{})[fix.id];}).map(u=>u.name).join(', ')} pending</span>`:''}
+    </div>`;
   }
 
   if(isAdmin){
@@ -3143,6 +3222,8 @@ function buildMC(fix){
       <div class="mc-team"><div class="mc-flag">${fix.fB}</div><div class="mc-name">${fix.nB}</div></div>
     </div>
     ${predRow}
+    ${everyonePicks}
+    ${adminStatusRow}
     <div class="mc-actions" style="flex-wrap:wrap;">${actions}</div>
   </div>`;
 }
@@ -3422,9 +3503,129 @@ async function answerQuiz(qid, optionIdx){
 }
 
 // ══════════════════════════════════════════════════════
+//  DARK MODE
+// ══════════════════════════════════════════════════════
+function applyTheme(){
+  const dark = LS.get('wcp_theme')==='dark';
+  document.documentElement.setAttribute('data-theme', dark?'dark':'light');
+  const t=document.getElementById('theme-toggle');
+  if(t) t.classList.toggle('on', dark);
+}
+function toggleTheme(){
+  const cur = LS.get('wcp_theme')==='dark';
+  LS.set('wcp_theme', cur?'light':'dark');
+  applyTheme();
+  toast(cur?'☀️ Light mode':'🌙 Dark mode');
+}
+
+// ══════════════════════════════════════════════════════
+//  MATCH COUNTDOWN TIMER
+// ══════════════════════════════════════════════════════
+const MONTH_MAP={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+
+function parseFixtureDateTime(fix){
+  // date like "12 Jun", time like "00:45" — these are in Nepal Standard Time (UTC+5:45)
+  const parts=(fix.date||'').trim().split(/\s+/);
+  if(parts.length<2) return null;
+  const day=parseInt(parts[0]);
+  const month=MONTH_MAP[parts[1]];
+  if(isNaN(day)||month===undefined) return null;
+  const [hh,mm]=(fix.time||'00:00').split(':').map(Number);
+  if(isNaN(hh)||isNaN(mm)) return null;
+  // Build as UTC, then subtract NST offset (+5:45) to get true UTC instant
+  const utcMs = Date.UTC(2026, month, day, hh, mm, 0) - (5*60+45)*60*1000;
+  return new Date(utcMs);
+}
+
+function renderCountdown(){
+  const el=document.getElementById('countdown-banner');
+  if(!el) return;
+  const fixtures=getFixtures();
+  const pinned=fixtures.find(f=>f.pinned && !f.result);
+  const target=pinned || fixtures.find(f=>!f.result);
+  if(!target){ el.innerHTML=''; return; }
+  const dt=parseFixtureDateTime(target);
+  if(!dt){ el.innerHTML=''; return; }
+
+  const now=new Date();
+  const diff=dt.getTime()-now.getTime();
+
+  let label, urgent=false;
+  if(diff<=0 && diff > -3*60*60*1000){
+    label='🔴 LIVE NOW (or just finished)'; urgent=true;
+  } else if(diff<=0){
+    label='Match time has passed';
+  } else {
+    const totalMin=Math.floor(diff/60000);
+    const days=Math.floor(totalMin/1440);
+    const hours=Math.floor((totalMin%1440)/60);
+    const mins=totalMin%60;
+    if(days>0) label=`Kicks off in ${days}d ${hours}h ${mins}m`;
+    else if(hours>0) label=`Kicks off in ${hours}h ${mins}m`;
+    else { label=`Kicks off in ${mins}m`; urgent = mins<=60; }
+  }
+
+  el.innerHTML=`<div class="mc" style="margin:0 12px 10px;background:${urgent?'var(--red-bg)':'var(--pitch)'};border:none;">
+    <div style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:${urgent?'var(--red)':'rgba(255,255,255,.5)'};">${target.fA} ${target.nA} vs ${target.nB} ${target.fB}</div>
+        <div style="font-size:16px;font-weight:800;color:${urgent?'var(--red)':'#fff'};margin-top:4px;">${label}</div>
+      </div>
+      <div style="font-size:28px;">⏱️</div>
+    </div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════
+//  QUIZ LEADERBOARD
+// ══════════════════════════════════════════════════════
+function renderQuizLeaderboard(){
+  const wrap=document.getElementById('quiz-lb-wrap');
+  if(!wrap) return;
+  const members=getMembers();
+  const today=getTodayQuizQuestion();
+  const todayIdx=QUIZ_BANK.indexOf(today);
+
+  // Count correct answers across all questions each member has answered
+  const scored=members.map(u=>{
+    const answers = u.id===ME.id ? (ME.quizAnswers||{}) : (u.quizAnswers||{});
+    let correct=0, answered=0;
+    QUIZ_BANK.forEach(q=>{
+      if(answers[q.id]!==undefined){
+        answered++;
+        if(answers[q.id]===q.correct) correct++;
+      }
+    });
+    return {name:u.name, id:u.id, correct, answered};
+  }).sort((a,b)=>b.correct-a.correct || b.answered-a.answered);
+
+  if(!scored.some(s=>s.answered>0)){
+    wrap.innerHTML='<div class="empty"><div class="empty-icon">🧠</div>Nobody has answered yet — be the first!</div>';
+    return;
+  }
+
+  const med=['🥇','🥈','🥉'];
+  const cols=['#2563eb','#7c3aed','#0891b2','#d97706','#dc2626','#16a34a'];
+  wrap.innerHTML=scored.map((u,i)=>{
+    const isMe=u.id===ME.id;
+    const ini=u.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    const col=cols[i%cols.length];
+    return `<div class="lb-row ${isMe?'me':''}">
+      <div class="lb-pos">${i<3&&u.correct>0?'<span style="font-size:16px">'+med[i]+'</span>':i+1}</div>
+      <div class="lb-av" style="background:${col}18;color:${col}">${ini}</div>
+      <div class="lb-info">
+        <div class="lb-nm">${u.name}${isMe?' <span style="font-size:10px;font-weight:500;color:var(--muted)">(you)</span>':''}</div>
+        <div class="lb-det">${u.answered} question${u.answered!==1?'s':''} answered</div>
+      </div>
+      <div class="lb-pts">${u.correct}</div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════
 //  NAV
 // ══════════════════════════════════════════════════════
-const PAGES=['home','predict','table','audit','settings'];
+const PAGES=['home','predict','table','quiz','audit','settings'];
 function goPage(p){
   PAGES.forEach(id=>{
     document.getElementById('pg-'+id).classList.toggle('on',id===p);
@@ -3447,6 +3648,7 @@ function hideSplash(){setTimeout(()=>document.getElementById('splash').classList
 //  BOOT
 // ══════════════════════════════════════════════════════
 window.addEventListener('load',async()=>{
+  applyTheme();
   try{
     const myId=LS.get('wcp_my_id');
     const savedLg=LS.get('wcp_league');
