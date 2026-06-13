@@ -41,9 +41,9 @@ body{display:flex;justify-content:center;overflow:hidden;}
 
 /* BOTTOM NAV */
 #bnav{height:var(--nav-h);background:var(--bg2);border-top:1px solid var(--border);display:flex;align-items:stretch;padding-bottom:var(--safe-b);flex-shrink:0;box-shadow:0 -2px 12px rgba(0,0,0,.06);}
-.nb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:transparent;color:var(--muted);font-size:10px;font-weight:600;cursor:pointer;transition:color .15s,transform .1s;padding:8px 4px;position:relative;user-select:none;}
+.nb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:none;background:transparent;color:var(--muted);font-size:9px;font-weight:600;cursor:pointer;transition:color .15s,transform .1s;padding:7px 2px;position:relative;user-select:none;}
 .nb:active{transform:scale(.92);}
-.nb svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+.nb svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
 .nb.on{color:var(--green);}
 .nb.on::after{content:'';position:absolute;top:0;left:25%;right:25%;height:2px;background:var(--green);border-radius:0 0 2px 2px;}
 .nb-badge{position:absolute;top:6px;right:calc(50% - 18px);background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 4px;border-radius:6px;min-width:14px;text-align:center;}
@@ -359,11 +359,19 @@ body{display:flex;justify-content:center;overflow:hidden;}
         <div class="stat-c"><div class="stat-l">Accuracy</div><div class="stat-v v-purple" id="d-acc">—%</div></div>
       </div>
 
+      <div id="reminder-banner"></div>
+
       <div class="sec-label">Prize Pool</div>
       <div id="home-pool"></div>
 
       <div class="sec-label">Next Match</div>
       <div id="home-next"></div>
+
+      <div class="sec-label">💡 Did You Know?</div>
+      <div id="daily-fact"></div>
+
+      <div class="sec-label">Group Standings <span class="sec-label-action" id="standings-toggle-wrap" style="display:none" onclick="toggleStandingsView()"><span id="standings-toggle-txt">Show all groups</span></span></div>
+      <div id="group-standings"></div>
 
       <div class="sec-label">📰 Latest News</div>
       <div id="news-section"></div>
@@ -401,8 +409,13 @@ body{display:flex;justify-content:center;overflow:hidden;}
       <div class="pg-header">
         <div class="pg-title">League Table</div>
         <div class="pg-sub" id="lb-league-name">—</div>
+        <div class="auth-tabs" style="margin-top:10px;">
+          <button class="auth-tab on" id="tbl-tab-league" onclick="switchTableView('league')">League Table</button>
+          <button class="auth-tab" id="tbl-tab-mine" onclick="switchTableView('mine')">My Predictions</button>
+        </div>
       </div>
-      <div style="padding:12px 0 0;"><div class="lb-card" id="lb-wrap"></div></div>
+      <div style="padding:12px 0 0;" id="tbl-view-league"><div class="lb-card" id="lb-wrap"></div></div>
+      <div style="padding:12px 0 0;display:none;" id="tbl-view-mine"><div id="mypreds-wrap"></div></div>
     </div>
 
     <!-- AUDIT LOG -->
@@ -414,6 +427,15 @@ body{display:flex;justify-content:center;overflow:hidden;}
       <div style="padding:12px 0 0;"><div class="lb-card" id="audit-wrap"></div></div>
     </div>
 
+    <!-- QUIZ -->
+    <div class="page" id="pg-quiz">
+      <div class="pg-header">
+        <div class="pg-title">⚽ Football Quiz</div>
+        <div class="pg-sub">A new question every day — see what the boys picked!</div>
+      </div>
+      <div style="padding:12px 0 0;" id="quiz-wrap"></div>
+    </div>
+
     <!-- SETTINGS -->
     <div class="page" id="pg-settings">
       <div class="pg-header"><div class="pg-title">Settings</div></div>
@@ -421,6 +443,14 @@ body{display:flex;justify-content:center;overflow:hidden;}
 
         <div class="sec-label">League</div>
         <div class="code-banner" id="code-banner"></div>
+
+        <div class="sec-label">Reminders</div>
+        <div class="settings-group">
+          <div class="settings-row" style="cursor:pointer;" onclick="toggleReminders()">
+            <div><div class="s-label">Browser Reminders</div><div class="s-sub">Get notified about matches you haven't predicted</div></div>
+            <div class="toggle" id="reminders-toggle"></div>
+          </div>
+        </div>
 
         <div class="sec-label">Entry Fee</div>
         <div class="settings-group">
@@ -445,6 +475,16 @@ body{display:flex;justify-content:center;overflow:hidden;}
 
           <div class="sec-label">Fixtures <span class="sec-label-action" onclick="openAddFixture()">+ Add Match</span></div>
           <div class="settings-group" id="fixtures-admin-list"></div>
+
+          <div class="sec-label">Export & Reset</div>
+          <div class="settings-group">
+            <div class="settings-row" style="cursor:pointer;" onclick="exportResultsCSV()">
+              <div><div class="s-label">📥 Export Standings (CSV)</div><div class="s-sub">Download current leaderboard as a spreadsheet</div></div>
+            </div>
+            <div class="settings-row" style="cursor:pointer;" onclick="resetTournament()">
+              <div><div class="s-label" style="color:var(--red);">🔄 Reset Scores & Results</div><div class="s-sub">Clears all results, locks & activity log — keeps fixtures, members & everyone's predictions</div></div>
+            </div>
+          </div>
 
           <div class="sec-label">Sync (one-time setup)</div>
           <div class="settings-group">
@@ -493,6 +533,10 @@ body{display:flex;justify-content:center;overflow:hidden;}
     </button>
     <button class="nb" onclick="goPage('table')" id="nb-table">
       <svg viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>Table
+    </button>
+    <button class="nb" onclick="goPage('quiz')" id="nb-quiz">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Quiz
+      <span class="nb-badge" id="quiz-badge" style="display:none">!</span>
     </button>
     <button class="nb" onclick="goPage('audit')" id="nb-audit">
       <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>Activity
@@ -597,13 +641,13 @@ body{display:flex;justify-content:center;overflow:hidden;}
 <div class="modal-bg" id="mem-modal" onclick="bgCloseMem(event)">
   <div class="modal-sheet">
     <div class="drag-pill"></div>
-    <div class="mod-title">Add Member</div>
-    <div class="mod-sub">Create a login for a friend</div>
+    <div class="mod-title" id="mem-modal-title">Add Member</div>
+    <div class="mod-sub" id="mem-modal-sub">Create a login for a friend</div>
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div class="field"><label>Name</label><input id="mem-name" placeholder="e.g. Aman"></div>
       <div class="field"><label>Username</label><input id="mem-user" placeholder="e.g. aman" style="text-transform:lowercase;"></div>
       <div class="field"><label>PIN (4 digits)</label><input id="mem-pin" type="text" inputmode="numeric" placeholder="e.g. 1234"></div>
-      <button class="btn btn-green" onclick="saveMember()">Add Member</button>
+      <button class="btn btn-green" onclick="saveMember()" id="mem-save-btn">Add Member</button>
       <button class="btn btn-outline" onclick="closeMemModal()">Cancel</button>
     </div>
   </div>
@@ -2090,7 +2134,11 @@ async function pullEverything(){
   try{
     setSyncUI('spin','Syncing...');
     const {data:players} = await SB.from('players').select('*').eq('league_code',LEAGUE.code);
-    if(players) MEMBERS = players;
+    if(players){
+      MEMBERS = players.map(p=>({...p, quizAnswers:p.quiz_answers||{}}));
+      const myRecord=MEMBERS.find(p=>p.id===ME.id);
+      if(myRecord && myRecord.quizAnswers) ME.quizAnswers={...myRecord.quizAnswers, ...(ME.quizAnswers||{})};
+    }
     const {data:lg} = await SB.from('leagues').select('*').eq('code',LEAGUE.code).single();
     if(lg){
       LEAGUE.fee=lg.fee; LEAGUE.currency=lg.currency; LEAGUE.name=lg.name;
@@ -2114,7 +2162,7 @@ async function pullEverything(){
 async function pushMyPreds(){
   if(!SB||!LEAGUE||!ME) return;
   try{
-    await withTimeout(SB.from('players').upsert({id:ME.id,name:ME.name,username:ME.username,pin:ME.pin,role:ME.role,league_code:LEAGUE.code,preds:ME.preds||{}},{onConflict:'id'}), 8000);
+    await withTimeout(SB.from('players').upsert({id:ME.id,name:ME.name,username:ME.username,pin:ME.pin,role:ME.role,playing:ME.playing,league_code:LEAGUE.code,preds:ME.preds||{},quiz_answers:ME.quizAnswers||{}},{onConflict:'id'}), 8000);
     setSyncUI('ok','Synced');
   }catch(e){ setSyncUI('err','Push failed'); }
 }
@@ -2135,7 +2183,7 @@ async function deleteFixtureRemote(id){
 async function pushMember(member){
   if(!SB||!LEAGUE) return;
   try{
-    await withTimeout(SB.from('players').upsert({id:member.id,name:member.name,username:member.username,pin:member.pin,role:member.role,league_code:LEAGUE.code,preds:member.preds||{}},{onConflict:'id'}), 8000);
+    await withTimeout(SB.from('players').upsert({id:member.id,name:member.name,username:member.username,pin:member.pin,role:member.role,playing:member.playing,league_code:LEAGUE.code,preds:member.preds||{},quiz_answers:member.quizAnswers||{}},{onConflict:'id'}), 8000);
   }catch(e){ console.error(e); }
 }
 async function deleteMemberRemote(id){
@@ -2275,6 +2323,7 @@ async function launchApp(){
   subscribeRT();
   setInterval(()=>pullEverything().then(renderAll), 30000);
   setInterval(fetchNews, NEWS_CACHE_MS);
+  if(LS.get('wcp_reminders')===true) checkReminderNotification();
 }
 
 // ══════════════════════════════════════════════════════
@@ -2285,11 +2334,16 @@ function renderAll(){
   renderPool();
   renderHomeNext();
   renderNews();
+  renderDailyFact();
+  renderGroupStandings();
   renderPredictList();
   renderTable();
+  renderMyPredictions();
   renderSettings();
   renderAudit();
+  renderQuiz();
   checkPredBadge();
+  renderReminderBanner();
 }
 
 function getMembers(){
@@ -2327,22 +2381,76 @@ function renderDash(){
 function renderPool(){
   if(!LEAGUE) return;
   const fee=LEAGUE.fee||0, cur=LEAGUE.currency||'NPR';
-  const sym={NPR:'रू',INR:'₹',USD:'$',GBP:'£',EUR:'€'}[cur]||cur;
   const members=getMembers().length||1;
   const total=fee*members;
   const pct=Math.min(100, members/6*100);
   document.getElementById('home-pool').innerHTML=`
     <div class="pool-hero">
       <div class="pool-label">Total Prize Pool</div>
-      <div class="pool-amt">${sym}${total.toLocaleString()}</div>
-      <div class="pool-sub">${members} member${members!==1?'s':''} × ${sym}${fee.toLocaleString()}</div>
+      <div class="pool-amt">${total.toLocaleString()} <span style="font-size:16px;font-weight:700;">${cur}</span></div>
+      <div class="pool-sub">${members} member${members!==1?'s':''} × ${fee.toLocaleString()} ${cur}</div>
       <div class="pool-bar-bg"><div class="pool-bar" style="width:${pct}%"></div></div>
     </div>
     <div class="prize-list">
-      <div class="prize-row"><span class="prize-nm">🥇 Winner (50%)</span><span class="prize-val">${sym}${Math.round(total*.5).toLocaleString()}</span></div>
-      <div class="prize-row"><span class="prize-nm">🥈 Runner Up (30%)</span><span class="prize-val">${sym}${Math.round(total*.3).toLocaleString()}</span></div>
-      <div class="prize-row"><span class="prize-nm">🎯 Most Exact (20%)</span><span class="prize-val">${sym}${Math.round(total*.2).toLocaleString()}</span></div>
+      <div class="prize-row"><span class="prize-nm">🏆 Winner Takes All</span><span class="prize-val">${total.toLocaleString()} ${cur}</span></div>
     </div>`;
+}
+
+let STANDINGS_EXPANDED=false;
+function toggleStandingsView(){
+  STANDINGS_EXPANDED=!STANDINGS_EXPANDED;
+  document.getElementById('standings-toggle-txt').textContent=STANDINGS_EXPANDED?'Show fewer':'Show all groups';
+  renderGroupStandings();
+}
+
+function renderGroupStandings(){
+  const fixtures=getFixtures();
+  // Build group -> teams map from group-stage fixtures (stage starts with "Group ")
+  const groups={};
+  fixtures.forEach(f=>{
+    if(!/^Group /.test(f.stage||'')) return;
+    const g=f.stage;
+    groups[g]=groups[g]||{};
+    [[f.nA,f.fA],[f.nB,f.fB]].forEach(([nm,flag])=>{
+      if(!groups[g][nm]) groups[g][nm]={name:nm,flag,P:0,W:0,D:0,L:0,GF:0,GA:0,Pts:0};
+    });
+    if(f.result){
+      const r=f.result;
+      const tA=groups[g][f.nA], tB=groups[g][f.nB];
+      tA.P++; tB.P++;
+      tA.GF+=r.sA; tA.GA+=r.sB;
+      tB.GF+=r.sB; tB.GA+=r.sA;
+      if(r.sA>r.sB){ tA.W++; tA.Pts+=3; tB.L++; }
+      else if(r.sA<r.sB){ tB.W++; tB.Pts+=3; tA.L++; }
+      else { tA.D++; tB.D++; tA.Pts+=1; tB.Pts+=1; }
+    }
+  });
+
+  const groupNames=Object.keys(groups).sort();
+  if(!groupNames.length){
+    document.getElementById('group-standings').innerHTML='<div class="empty">No group stage fixtures yet.</div>';
+    document.getElementById('standings-toggle-wrap').style.display='none';
+    return;
+  }
+  document.getElementById('standings-toggle-wrap').style.display = groupNames.length>1 ? 'block' : 'none';
+  const shown = STANDINGS_EXPANDED ? groupNames : groupNames.slice(0,1);
+
+  document.getElementById('group-standings').innerHTML = shown.map(g=>{
+    const teams=Object.values(groups[g]).sort((a,b)=> b.Pts-a.Pts || (b.GF-b.GA)-(a.GF-a.GA) || b.GF-a.GF);
+    const rows=teams.map((t,i)=>`
+      <div class="guide-row" style="padding:9px 14px;">
+        <div class="guide-left" style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;color:var(--muted);width:14px;">${i+1}</span>
+          <span style="font-size:16px;">${t.flag}</span>
+          <span class="gd" style="font-size:12px;">${t.name}</span>
+        </div>
+        <div style="display:flex;gap:8px;font-size:11px;color:var(--muted);align-items:center;">
+          <span>P${t.P}</span><span>GD${t.GF-t.GA>=0?'+':''}${t.GF-t.GA}</span>
+          <span style="font-weight:800;color:var(--text);font-size:13px;">${t.Pts}</span>
+        </div>
+      </div>`).join('');
+    return `<div class="guide-card"><div class="guide-head">${g}</div>${rows}</div>`;
+  }).join('');
 }
 
 function renderHomeNext(){
@@ -2485,17 +2593,170 @@ function checkPredBadge(){
 }
 
 // ══════════════════════════════════════════════════════
+//  MY PREDICTIONS HISTORY
+// ══════════════════════════════════════════════════════
+function switchTableView(view){
+  document.getElementById('tbl-tab-league').classList.toggle('on',view==='league');
+  document.getElementById('tbl-tab-mine').classList.toggle('on',view==='mine');
+  document.getElementById('tbl-view-league').style.display=view==='league'?'block':'none';
+  document.getElementById('tbl-view-mine').style.display=view==='mine'?'block':'none';
+}
+
+function renderMyPredictions(){
+  const fixtures=getFixtures();
+  const preds=ME.preds||{};
+  const withPreds=fixtures.filter(f=>preds[f.id]);
+  if(!withPreds.length){
+    document.getElementById('mypreds-wrap').innerHTML='<div class="empty"><div class="empty-icon">📝</div>You haven\'t made any predictions yet.</div>';
+    return;
+  }
+  // Sort: results first (most recent), then upcoming
+  const sorted=[...withPreds].sort((a,b)=>{
+    if(a.result&&!b.result) return -1;
+    if(!a.result&&b.result) return 1;
+    return 0;
+  });
+  document.getElementById('mypreds-wrap').innerHTML = sorted.map(f=>{
+    const p=preds[f.id];
+    const penTxt=p.pen?` (${p.pen==='A'?f.nA:f.nB} on pens)`:'';
+    let resultHTML, ptsHTML='';
+    if(f.result){
+      const r=f.result;
+      const pts=f.ko&&r.penWinner ? scorePen(p.sA,p.sB,p.pen,r.sA,r.sB,r.penWinner) : scoreReg(p.sA,p.sB,r.sA,r.sB);
+      resultHTML=`<div style="font-size:13px;color:var(--text2);margin-top:4px;">Result: <b>${r.sA}–${r.sB}</b>${r.penWinner?` (${r.penWinner==='A'?f.nA:f.nB} on pens)`:''}</div>`;
+      ptsHTML=`<div class="pts-chip pt${pts}" style="margin-left:auto;">${pts}pt${pts!==1?'s':''}</div>`;
+    } else {
+      resultHTML=`<div style="font-size:12px;color:var(--muted);margin-top:4px;">${f.locked?'🔒 Awaiting result':'Pending — match not played yet'}</div>`;
+    }
+    return `<div class="mc" style="margin:0 12px 10px;">
+      <div class="mc-top"><span class="mc-stage">${f.stage}</span><span class="mc-dt">${f.date} · ${f.time}</span></div>
+      <div style="padding:12px 14px;display:flex;align-items:center;gap:10px;">
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:700;">${f.fA} ${f.nA} vs ${f.fB} ${f.nB}</div>
+          <div style="font-size:13px;color:var(--green);font-weight:700;margin-top:4px;">My pick: ${p.sA}–${p.sB}${penTxt}</div>
+          ${resultHTML}
+        </div>
+        ${ptsHTML}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════
+//  DAILY FACTS
+// ══════════════════════════════════════════════════════
+const DAILY_FACTS = [
+  "The first FIFA World Cup was held in 1930 in Uruguay, and the host nation won the title.",
+  "Brazil is the only country to have played in every World Cup tournament since it began.",
+  "The World Cup trophy is made of 18-karat gold and stands about 36cm tall.",
+  "Germany, Brazil, and Italy share the record for the fastest goal scored in World Cup history conversations — but Hakan Şükür's 11-second goal for Turkey in 2002 remains the fastest ever.",
+  "Just Fontaine of France scored 13 goals in the 1958 World Cup — still the record for most goals in a single tournament.",
+  "The 2026 World Cup will be the first ever hosted by three countries: USA, Canada, and Mexico.",
+  "2026 will be the first World Cup with 48 teams, up from 32 in previous editions.",
+  "Pelé is the only player to win the World Cup three times, in 1958, 1962, and 1970.",
+  "The 'Golden Goal' rule, used in the 1990s and early 2000s, was eventually scrapped due to fan criticism.",
+  "Germany holds the record for the biggest World Cup win: 8-0 over Saudi Arabia in 2002, and 7-1 over Brazil in 2014.",
+  "Diego Maradona's 'Hand of God' goal happened in the 1986 quarter-final against England.",
+  "The World Cup was not held in 1942 and 1946 due to World War II.",
+  "Zinedine Zidane was sent off in his last ever match — the 2006 World Cup Final — for headbutting Marco Materazzi.",
+  "Only eight nations have ever won the World Cup: Brazil, Germany, Italy, Argentina, France, Uruguay, Spain, and England.",
+  "Roger Milla of Cameroon became the oldest World Cup goal scorer at 42 years old in 1994.",
+  "The official match ball changes for every World Cup — a new design is unveiled before each tournament.",
+  "Lionel Messi finally won his first World Cup in 2022 with Argentina, completing his legendary career.",
+  "The 1950 World Cup Final (Brazil vs Uruguay) had an attendance of around 200,000 — the largest ever for a football match.",
+  "England's only World Cup win came in 1966, as hosts, beating West Germany 4-2 in the final.",
+  "The fastest red card in World Cup history was given to Uruguay's José Batista just 56 seconds into a match in 1986.",
+  "A World Cup match can technically go on forever in theory — extra time and penalties exist specifically to always produce a winner in knockout rounds.",
+  "The World Cup mascot tradition started in 1966 with 'World Cup Willie', an England-themed lion.",
+  "North Korea stunned Italy 1-0 in the 1966 World Cup, one of the biggest upsets in tournament history.",
+  "VAR (Video Assistant Referee) was used for the first time in a World Cup in Russia 2018.",
+  "Saudi Arabia's win over Argentina in the 2022 group stage was one of the greatest World Cup shocks ever — Argentina went on to win the whole tournament.",
+  "The World Cup trophy given to winners since 1974 is a replica — the real trophy stays with FIFA.",
+  "Cristiano Ronaldo is the only player to score in five different World Cup tournaments (2006-2022).",
+  "Croatia's run to the final in 2018 was their best-ever World Cup finish, losing to France.",
+  "The 1970 World Cup in Mexico was the first to be broadcast in color worldwide.",
+  "Morocco became the first African nation to reach a World Cup semi-final, in Qatar 2022."
+];
+
+function renderDailyFact(){
+  const start=new Date(2026,0,1);
+  const now=new Date();
+  const dayOfYear=Math.floor((now-start)/86400000);
+  const fact=DAILY_FACTS[((dayOfYear%DAILY_FACTS.length)+DAILY_FACTS.length)%DAILY_FACTS.length];
+  document.getElementById('daily-fact').innerHTML=`
+    <div class="news-item" style="margin:0 12px 10px;background:var(--amber-bg);border-color:rgba(217,119,6,.2);">
+      <div class="news-hl" style="color:#92400e;">${fact}</div>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════════
+//  REMINDERS
+// ══════════════════════════════════════════════════════
+function toggleReminders(){
+  const cur=LS.get('wcp_reminders')===true;
+  if(!cur){
+    if('Notification' in window){
+      Notification.requestPermission().then(perm=>{
+        if(perm==='granted'){
+          LS.set('wcp_reminders',true);
+          document.getElementById('reminders-toggle').classList.add('on');
+          toast('🔔 Reminders enabled!');
+          checkReminderNotification();
+        } else {
+          toast('Notifications blocked — enable in browser settings');
+        }
+      });
+    } else {
+      toast('Notifications not supported on this browser');
+    }
+  } else {
+    LS.set('wcp_reminders',false);
+    document.getElementById('reminders-toggle').classList.remove('on');
+    toast('Reminders off');
+  }
+}
+
+function renderReminderBanner(){
+  const fixtures=getFixtures();
+  const pinned=fixtures.find(f=>f.pinned && !f.result);
+  const target=pinned || fixtures.find(f=>!f.result && !f.locked);
+  const el=document.getElementById('reminder-banner');
+  if(!el) return;
+  if(target && !target.locked && !target.result && !(ME.preds||{})[target.id] && ME.playing!==false){
+    el.innerHTML=`<div class="news-item" style="margin:12px 12px 0;background:var(--blue-bg);border-color:rgba(37,99,235,.2);cursor:pointer;" onclick="goPage('predict')">
+      <div class="news-hl" style="color:#1e40af;">⏰ Don't forget: predict <b>${target.nA} vs ${target.nB}</b> before it's locked!</div>
+    </div>`;
+  } else {
+    el.innerHTML='';
+  }
+}
+
+function checkReminderNotification(){
+  if(LS.get('wcp_reminders')!==true) return;
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  const fixtures=getFixtures();
+  const pinned=fixtures.find(f=>f.pinned && !f.result);
+  const target=pinned || fixtures.find(f=>!f.result && !f.locked);
+  if(target && !(ME.preds||{})[target.id] && ME.playing!==false){
+    const lastNotified=LS.get('wcp_last_notif');
+    if(lastNotified!==target.id){
+      new Notification('⚽ Prediction Reminder', {body:`Don't forget to predict ${target.nA} vs ${target.nB}!`});
+      LS.set('wcp_last_notif', target.id);
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════
 //  SETTINGS
 // ══════════════════════════════════════════════════════
 function renderSettings(){
   if(!ME||!LEAGUE) return;
   const fee=LEAGUE.fee||0, cur=LEAGUE.currency||'NPR';
-  const sym={NPR:'रू',INR:'₹',USD:'$',GBP:'£',EUR:'€'}[cur]||cur;
   const members=getMembers().length||1;
   document.getElementById('fee-val').value=fee;
   document.getElementById('cur-label').textContent=cur;
   document.getElementById('pool-calc-sub').textContent=`${members} member${members!==1?'s':''}`;
-  document.getElementById('pool-calc-val').textContent=`${sym}${(fee*members).toLocaleString()}`;
+  document.getElementById('pool-calc-val').textContent=`${(fee*members).toLocaleString()} ${cur}`;
   document.getElementById('s-name-display').textContent=ME.name+' (@'+ME.username+')';
   document.getElementById('s-role-display').textContent=(ME.role==='admin'?'League Admin':'Member')+' · '+LEAGUE.name;
 
@@ -2516,6 +2777,9 @@ function renderSettings(){
   // "Also playing" toggle (shown to everyone, most relevant for admins)
   const playToggle=document.getElementById('playing-toggle');
   if(playToggle) playToggle.classList.toggle('on', ME.playing!==false);
+
+  const remToggle=document.getElementById('reminders-toggle');
+  if(remToggle) remToggle.classList.toggle('on', LS.get('wcp_reminders')===true);
 }
 
 async function togglePlaying(){
@@ -2547,6 +2811,7 @@ function renderMembersList(){
         <div class="member-meta">@${m.username} · ${m.playing===false?'Not playing':'Playing'}</div>
       </div>
       <div class="member-pin">PIN ${m.pin}</div>
+      <button class="member-del" style="background:var(--blue-bg);color:var(--blue);width:auto;padding:0 8px;font-size:11px;font-weight:700;" onclick="openAddMember('${m.id}')">Edit</button>
       ${canPromote?`<button class="member-del" style="background:var(--amber-bg);color:var(--amber);width:auto;padding:0 8px;font-size:11px;font-weight:700;" onclick="toggleAdminRole('${m.id}',true)">Make Admin</button>`:''}
       ${canDemote?`<button class="member-del" style="background:var(--bg4);color:var(--text2);width:auto;padding:0 8px;font-size:11px;font-weight:700;" onclick="toggleAdminRole('${m.id}',false)">Remove Admin</button>`:''}
       ${canDel?`<button class="member-del" onclick="removeMember('${m.id}')">✕</button>`:''}
@@ -2630,10 +2895,25 @@ async function saveSupabase(){
 // ══════════════════════════════════════════════════════
 //  MEMBER MANAGEMENT (admin)
 // ══════════════════════════════════════════════════════
-function openAddMember(){
-  document.getElementById('mem-name').value='';
-  document.getElementById('mem-user').value='';
-  document.getElementById('mem-pin').value='';
+let EDIT_MEM_ID=null;
+function openAddMember(id){
+  EDIT_MEM_ID=id||null;
+  if(id){
+    const m=getMembers().find(x=>x.id===id) || (id===ME.id?ME:null);
+    document.getElementById('mem-modal-title').textContent='Edit Member';
+    document.getElementById('mem-modal-sub').textContent='Update login details — tell them if you change anything';
+    document.getElementById('mem-name').value=m.name;
+    document.getElementById('mem-user').value=m.username;
+    document.getElementById('mem-pin').value=m.pin;
+    document.getElementById('mem-save-btn').textContent='Save Changes';
+  } else {
+    document.getElementById('mem-modal-title').textContent='Add Member';
+    document.getElementById('mem-modal-sub').textContent='Create a login for a friend';
+    document.getElementById('mem-name').value='';
+    document.getElementById('mem-user').value='';
+    document.getElementById('mem-pin').value='';
+    document.getElementById('mem-save-btn').textContent='Add Member';
+  }
   document.getElementById('mem-modal').classList.add('on');
 }
 function closeMemModal(){ document.getElementById('mem-modal').classList.remove('on'); }
@@ -2645,13 +2925,33 @@ async function saveMember(){
   const pin =document.getElementById('mem-pin').value.trim();
   if(!name||!user||!pin){toast('Fill in all fields');return;}
   if(pin.length<4){toast('PIN must be 4 digits');return;}
+
+  if(EDIT_MEM_ID){
+    // EDIT existing member
+    const dupe=getMembers().some(m=>m.username===user && m.id!==EDIT_MEM_ID);
+    if(dupe){toast('Username already taken by someone else');return;}
+    let m = MEMBERS.find(x=>x.id===EDIT_MEM_ID);
+    if(!m && EDIT_MEM_ID===ME.id) m=ME;
+    if(!m){toast('Member not found');return;}
+    m.name=name; m.username=user; m.pin=pin;
+    if(EDIT_MEM_ID===ME.id){ ME.name=name; ME.username=user; ME.pin=pin; LS.set('wcp_me_'+ME.id,ME); }
+    const lg=LS.get('wcp_lg_'+LEAGUE.code);
+    if(lg){ const lm=(lg.members||[]).find(x=>x.id===EDIT_MEM_ID); if(lm){lm.name=name;lm.username=user;lm.pin=pin;} }
+    closeMemModal();
+    renderMembersList(); renderTable(); renderDash();
+    toast(`✅ Updated! New login: code ${LEAGUE.code}, username ${user}, PIN ${pin}`);
+    await pushMember(m);
+    await logAudit('member_edited', `updated login details for ${name}`);
+    renderAudit();
+    return;
+  }
+
   if(getMembers().some(m=>m.username===user)){toast('Username already exists');return;}
 
   const uid=btoa(LEAGUE.code+user+Date.now()).replace(/[^a-z0-9]/gi,'').slice(0,16);
   const newMember={id:uid,name,username:user,pin,role:'member',playing:true,preds:{}, league_code:LEAGUE.code};
   MEMBERS.push(newMember);
 
-  // local fallback storage
   const lg=LS.get('wcp_lg_'+LEAGUE.code);
   if(lg){ lg.members=lg.members||[]; lg.members.push(newMember); LS.set('wcp_lg_'+LEAGUE.code,lg); }
 
@@ -2954,6 +3254,171 @@ async function saveResult(){
   await pushFixture(FIXTURES[idx]);
   await logAudit('result_entered', `entered final result: ${fix.nA} ${sA}-${sB} ${fix.nB}${penWinner?` (pens: ${penWinner==='A'?fix.nA:fix.nB})`:''}`);
   renderAudit();
+}
+
+// ══════════════════════════════════════════════════════
+//  EXPORT CSV
+// ══════════════════════════════════════════════════════
+function exportResultsCSV(){
+  const sorted=getSorted();
+  let csv='Rank,Name,Username,Points,Exact Scores,Correct Predictions,Matches Scored,Accuracy %\n';
+  sorted.forEach((u,i)=>{
+    const acc=u.done?Math.round(u.correct/u.done*100):0;
+    csv+=`${i+1},"${u.name}",${u.username},${u.total},${u.exact},${u.correct},${u.done},${acc}\n`;
+  });
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`${LEAGUE.code}_standings_${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('📥 Downloaded!');
+}
+
+// ══════════════════════════════════════════════════════
+//  RESET TOURNAMENT (keep fixtures, members, predictions — clear results/locks/audit)
+// ══════════════════════════════════════════════════════
+async function resetTournament(){
+  if(!confirm('This will clear ALL match results, unlock every match, and wipe the activity log.\n\nFixtures, members, and everyone\'s predictions stay exactly as they are.\n\nContinue?')) return;
+  if(!confirm('Are you absolutely sure? This cannot be undone.')) return;
+
+  FIXTURES=getFixtures();
+  FIXTURES.forEach(f=>{ f.result=null; f.locked=false; f.pinned=false; });
+  saveFixturesLocal();
+
+  AUDIT=[];
+
+  if(SB&&LEAGUE){
+    try{
+      for(const fx of FIXTURES) await pushFixture(fx);
+      await withTimeout(SB.from('audit_log').delete().eq('league_code',LEAGUE.code), 8000);
+    }catch(e){ console.error(e); }
+  }
+
+  renderAll();
+  await logAudit('league_created', `reset the tournament — all results cleared, predictions kept intact`);
+  renderAudit();
+  toast('🔄 Tournament reset! Predictions preserved.');
+}
+
+// ══════════════════════════════════════════════════════
+//  FOOTBALL QUIZ
+// ══════════════════════════════════════════════════════
+const QUIZ_BANK = [
+  {id:'q1', q:'Which country has won the most FIFA World Cup titles?', options:['Germany','Brazil','Italy','Argentina'], correct:1},
+  {id:'q2', q:'How many teams will compete in the 2026 World Cup?', options:['32','40','48','64'], correct:2},
+  {id:'q3', q:'Who is the all-time top scorer in World Cup history?', options:['Pelé','Ronaldo (Brazil)','Miroslav Klose','Lionel Messi'], correct:2},
+  {id:'q4', q:'Which three countries are co-hosting the 2026 World Cup?', options:['USA, Mexico, Canada','Spain, Portugal, Morocco','Brazil, Argentina, Uruguay','Qatar, UAE, Saudi Arabia'], correct:0},
+  {id:'q5', q:'Who won the 2022 FIFA World Cup?', options:['France','Brazil','Argentina','Croatia'], correct:2},
+  {id:'q6', q:'What is the maximum number of players a team can have on the pitch (including goalkeeper)?', options:['10','11','12','9'], correct:1},
+  {id:'q7', q:'Which player famously scored the "Hand of God" goal in 1986?', options:['Pelé','Diego Maradona','Zico','Romário'], correct:1},
+  {id:'q8', q:'How long is a standard football match (excluding extra time)?', options:['80 minutes','90 minutes','100 minutes','120 minutes'], correct:1},
+  {id:'q9', q:'Which country hosted the first ever FIFA World Cup in 1930?', options:['Brazil','Italy','Uruguay','France'], correct:2},
+  {id:'q10', q:'What color card results in a player being sent off?', options:['Yellow','Blue','Green','Red'], correct:3},
+  {id:'q11', q:'Who has won the Ballon d\'Or award the most times?', options:['Cristiano Ronaldo','Lionel Messi','Michel Platini','Johan Cruyff'], correct:1},
+  {id:'q12', q:'Which club has won the most UEFA Champions League titles?', options:['Barcelona','AC Milan','Bayern Munich','Real Madrid'], correct:3},
+  {id:'q13', q:'In football, what does "VAR" stand for?', options:['Video Assistant Referee','Virtual Action Replay','Visual Aid Review','Variable Action Rule'], correct:0},
+  {id:'q14', q:'How many players are on a football team on the pitch in total (both teams combined)?', options:['18','20','22','24'], correct:2},
+  {id:'q15', q:'Which player is nicknamed "CR7"?', options:['Carlos Ramirez','Cristiano Ronaldo','Carlos Rivas','Cesar Rodriguez'], correct:1},
+  {id:'q16', q:'What is awarded to the top scorer of a World Cup tournament?', options:['Golden Ball','Golden Glove','Golden Boot','Golden Whistle'], correct:2},
+  {id:'q17', q:'Which country lost the 2014 World Cup Final to Germany?', options:['Brazil','Argentina','Netherlands','France'], correct:1},
+  {id:'q18', q:'How many minutes are added for halftime break?', options:['10 minutes','15 minutes','20 minutes','5 minutes'], correct:1},
+  {id:'q19', q:'Which legendary player wore the number 10 jersey for Brazil and Argentina respectively in iconic eras?', options:['Pelé and Maradona','Ronaldinho and Messi','Romário and Kempes','Zico and Riquelme'], correct:0},
+  {id:'q20', q:'What is the term for scoring three goals in a single match by one player?', options:['Brace','Hat-trick','Triple','Treble'], correct:1},
+  {id:'q21', q:'Which country won the very first European Championship (Euro) in 1960?', options:['West Germany','Spain','Soviet Union','Italy'], correct:2},
+  {id:'q22', q:'Who is widely regarded as the manager with the most Premier League titles?', options:['Arsène Wenger','Jose Mourinho','Pep Guardiola','Sir Alex Ferguson'], correct:3},
+  {id:'q23', q:'In a penalty shootout, how many initial kicks does each team take before sudden death (if needed)?', options:['3','5','4','7'], correct:1},
+  {id:'q24', q:'What is the offside rule primarily designed to prevent?', options:['Players standing too close to the ball','Attackers gaining unfair positional advantage behind the defense','Goalkeepers leaving their box','Excessive tackling'], correct:1},
+  {id:'q25', q:'Which country has reached the most World Cup finals without ever winning?', options:['Netherlands','Czech Republic','Hungary','Sweden'], correct:0},
+  {id:'q26', q:'Which African nation became the first to reach a World Cup semi-final, in 2022?', options:['Senegal','Ghana','Morocco','Cameroon'], correct:2},
+  {id:'q27', q:'What is the standard size of a football pitch length (in meters, approx, FIFA recommended)?', options:['90m','105m','120m','100m'], correct:1},
+  {id:'q28', q:'Who scored the winning goal for Argentina in the 2022 World Cup Final penalty shootout sequence as captain?', options:['Lionel Messi','Lautaro Martínez','Gonzalo Montiel','Ángel Di María'], correct:2},
+  {id:'q29', q:'Which competition is considered the most prestigious club football tournament in the world?', options:['UEFA Champions League','Copa Libertadores','FIFA Club World Cup','Europa League'], correct:0},
+  {id:'q30', q:'What nickname is given to the Brazilian national football team?', options:['La Roja','Los Albicelestes','Selecao (Seleção)','Azzurri'], correct:2}
+];
+
+function getTodayQuizQuestion(){
+  const start=new Date(2026,0,1);
+  const now=new Date();
+  const dayOfYear=Math.floor((now-start)/86400000);
+  const idx=((dayOfYear%QUIZ_BANK.length)+QUIZ_BANK.length)%QUIZ_BANK.length;
+  return QUIZ_BANK[idx];
+}
+
+function renderQuiz(){
+  const wrap=document.getElementById('quiz-wrap');
+  if(!wrap) return;
+  const q=getTodayQuizQuestion();
+  const myAnswer=(ME.quizAnswers||{})[q.id];
+
+  if(myAnswer===undefined){
+    // Not answered yet — show options
+    wrap.innerHTML=`
+      <div class="mc" style="margin:0 12px 10px;">
+        <div class="mc-top"><span class="mc-stage">Today's Question</span><span class="mc-dt">${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span></div>
+        <div style="padding:16px 14px;">
+          <div style="font-size:15px;font-weight:700;margin-bottom:14px;line-height:1.4;">${q.q}</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${q.options.map((opt,i)=>`<div class="pen-opt" style="text-align:left;padding:13px 14px;" onclick="answerQuiz('${q.id}',${i})">${opt}</div>`).join('')}
+          </div>
+        </div>
+      </div>`;
+    document.getElementById('quiz-badge').style.display='block';
+  } else {
+    // Already answered — show result + friends' picks
+    const allMembers=getMembers();
+    const counts=[0,0,0,0];
+    let totalAnswers=0;
+    allMembers.forEach(m=>{
+      const ans = m.id===ME.id ? myAnswer : (m.quizAnswers||{})[q.id];
+      if(ans!==undefined){ counts[ans]++; totalAnswers++; }
+    });
+    const maxCount=Math.max(...counts);
+
+    wrap.innerHTML=`
+      <div class="mc" style="margin:0 12px 10px;">
+        <div class="mc-top"><span class="mc-stage">Today's Question</span><span class="mc-dt">${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span></div>
+        <div style="padding:16px 14px;">
+          <div style="font-size:15px;font-weight:700;margin-bottom:14px;line-height:1.4;">${q.q}</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${q.options.map((opt,i)=>{
+              const pct=totalAnswers ? Math.round(counts[i]/totalAnswers*100) : 0;
+              const isCorrect=i===q.correct;
+              const isMine=i===myAnswer;
+              let bg='var(--bg3)', border='var(--border)', txtColor='var(--text2)';
+              if(isCorrect){ bg='var(--green-bg)'; border='var(--green)'; txtColor='var(--green)'; }
+              else if(isMine){ bg='var(--red-bg)'; border='var(--red)'; txtColor='var(--red)'; }
+              return `<div style="position:relative;border:1.5px solid ${border};border-radius:11px;overflow:hidden;padding:13px 14px;background:${bg};">
+                <div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(0,0,0,0.04);"></div>
+                <div style="position:relative;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;color:${txtColor};">
+                  <span>${opt} ${isCorrect?'✅':''}${isMine&&!isCorrect?' (your pick)':''}${isMine&&isCorrect?' (your pick!)':''}</span>
+                  <span style="font-size:12px;font-weight:800;">${pct}%</span>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:12px;text-align:center;">
+            ${totalAnswers} of ${allMembers.length} friend${allMembers.length!==1?'s':''} answered · New question tomorrow!
+          </div>
+        </div>
+      </div>`;
+    document.getElementById('quiz-badge').style.display='none';
+  }
+}
+
+async function answerQuiz(qid, optionIdx){
+  if(!ME.quizAnswers) ME.quizAnswers={};
+  ME.quizAnswers[qid]=optionIdx;
+  LS.set('wcp_me_'+ME.id, ME);
+  renderQuiz();
+  if(SB&&LEAGUE){
+    try{ await withTimeout(SB.from('players').upsert({id:ME.id,name:ME.name,username:ME.username,pin:ME.pin,role:ME.role,playing:ME.playing,league_code:LEAGUE.code,preds:ME.preds||{},quiz_answers:ME.quizAnswers},{onConflict:'id'}), 8000); }catch(e){}
+    await pullEverything();
+    renderQuiz();
+  }
+  const q=QUIZ_BANK.find(x=>x.id===qid);
+  if(optionIdx===q.correct) toast('✅ Correct!');
+  else toast('Nice try — see the right answer above');
 }
 
 // ══════════════════════════════════════════════════════
