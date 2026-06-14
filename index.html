@@ -3825,49 +3825,19 @@ async function safeJson(res){
   try{
     return JSON.parse(text);
   }catch(e){
-    // Got HTML or something else back
     throw new Error('Non-JSON response (status '+res.status+'): '+text.slice(0,120).replace(/\s+/g,' '));
   }
 }
 
-async function fetchViaProxy(url, headers){
-  const attempts=[
-    // 1. Direct (football-data.org allows CORS for most requests)
-    async ()=>{
-      const res=await fetch(url, {headers});
-      const data=await safeJson(res);
-      if(!res.ok) throw new Error(data.message||('HTTP '+res.status));
-      return data;
-    },
-    // 2. allorigins proxy (returns raw passthrough, supports custom headers via query is tricky —
-    //    so we pass the token as a query param workaround isn't possible; instead proxy whole request)
-    async ()=>{
-      const proxied='https://api.allorigins.win/raw?url='+encodeURIComponent(url);
-      const res=await fetch(proxied, {headers});
-      const data=await safeJson(res);
-      if(!res.ok) throw new Error(data.message||('HTTP '+res.status));
-      return data;
-    },
-    // 3. corsproxy.io fallback
-    async ()=>{
-      const proxied='https://corsproxy.io/?url='+encodeURIComponent(url);
-      const res=await fetch(proxied, {headers});
-      const data=await safeJson(res);
-      if(!res.ok) throw new Error(data.message||('HTTP '+res.status));
-      return data;
-    }
-  ];
-
-  let lastErr;
-  for(const attempt of attempts){
-    try{
-      return await withTimeout(attempt(), 12000);
-    }catch(e){
-      lastErr=e;
-      console.warn('fetch attempt failed:', e.message);
-    }
-  }
-  throw lastErr || new Error('All fetch attempts failed');
+// Calls our own /api/scores serverless function (same-origin, no CORS issues).
+// That function fetches football-data.org server-side using the provided key.
+async function fetchScoresAPI(key, status){
+  const qs = status ? `&status=${encodeURIComponent(status)}` : '';
+  const res = await withTimeout(fetch(`/api/scores?key=${encodeURIComponent(key)}${qs}`), 15000);
+  const data = await safeJson(res);
+  if(!res.ok) throw new Error(data.error || data.message || ('HTTP '+res.status));
+  if(data.error) throw new Error(data.error);
+  return data;
 }
 
 async function saveFootballDataKey(){
@@ -3878,7 +3848,7 @@ async function saveFootballDataKey(){
   st.style.display='block'; st.style.background='var(--amber-bg)'; st.style.color='var(--amber)';
   st.textContent='⏳ Testing...';
   try{
-    const data=await fetchViaProxy('https://api.football-data.org/v4/competitions/WC/matches', {'X-Auth-Token':key});
+    const data=await fetchScoresAPI(key);
     if(data.matches){
       st.style.background='var(--green-bg)'; st.style.color='var(--green)';
       st.textContent=`✅ Connected! Found ${data.matches.length} World Cup matches. Auto-checking every 15 min.`;
@@ -3905,7 +3875,7 @@ async function fetchAutoScores(){
   const key=LS.get('wcp_fd_key');
   if(!key) return 0;
   try{
-    const data=await fetchViaProxy('https://api.football-data.org/v4/competitions/WC/matches?status=FINISHED', {'X-Auth-Token':key});
+    const data=await fetchScoresAPI(key, 'FINISHED');
     if(!data.matches) return 0;
     FIXTURES=getFixtures();
     let updated=0;
