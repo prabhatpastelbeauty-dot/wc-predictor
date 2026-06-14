@@ -3820,18 +3820,54 @@ function teamsMatch(ourName, theirName){
   return a.includes(b) || b.includes(a);
 }
 
-async function fetchViaProxy(url, headers){
-  // Try direct first, fall back to a CORS proxy if blocked
+async function safeJson(res){
+  const text=await res.text();
   try{
-    const res=await withTimeout(fetch(url, {headers}), 10000);
-    if(res.ok) return await res.json();
-    throw new Error('status '+res.status);
+    return JSON.parse(text);
   }catch(e){
-    const proxied='https://corsproxy.io/?url='+encodeURIComponent(url);
-    const res2=await withTimeout(fetch(proxied, {headers}), 12000);
-    if(!res2.ok) throw new Error('proxy status '+res2.status);
-    return await res2.json();
+    // Got HTML or something else back
+    throw new Error('Non-JSON response (status '+res.status+'): '+text.slice(0,120).replace(/\s+/g,' '));
   }
+}
+
+async function fetchViaProxy(url, headers){
+  const attempts=[
+    // 1. Direct (football-data.org allows CORS for most requests)
+    async ()=>{
+      const res=await fetch(url, {headers});
+      const data=await safeJson(res);
+      if(!res.ok) throw new Error(data.message||('HTTP '+res.status));
+      return data;
+    },
+    // 2. allorigins proxy (returns raw passthrough, supports custom headers via query is tricky —
+    //    so we pass the token as a query param workaround isn't possible; instead proxy whole request)
+    async ()=>{
+      const proxied='https://api.allorigins.win/raw?url='+encodeURIComponent(url);
+      const res=await fetch(proxied, {headers});
+      const data=await safeJson(res);
+      if(!res.ok) throw new Error(data.message||('HTTP '+res.status));
+      return data;
+    },
+    // 3. corsproxy.io fallback
+    async ()=>{
+      const proxied='https://corsproxy.io/?url='+encodeURIComponent(url);
+      const res=await fetch(proxied, {headers});
+      const data=await safeJson(res);
+      if(!res.ok) throw new Error(data.message||('HTTP '+res.status));
+      return data;
+    }
+  ];
+
+  let lastErr;
+  for(const attempt of attempts){
+    try{
+      return await withTimeout(attempt(), 12000);
+    }catch(e){
+      lastErr=e;
+      console.warn('fetch attempt failed:', e.message);
+    }
+  }
+  throw lastErr || new Error('All fetch attempts failed');
 }
 
 async function saveFootballDataKey(){
