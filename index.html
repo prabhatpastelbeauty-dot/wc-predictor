@@ -3937,12 +3937,25 @@ async function fetchAutoScores(){
       if(m.venue && fix.venue!==m.venue){ fix.venue=m.venue; metaChanged=true; }
       if(m.id && fix.apiMatchId!==m.id){ fix.apiMatchId=m.id; metaChanged=true; }
       if(m.utcDate && fix.utcDate!==m.utcDate){
-        fix.utcDate=m.utcDate;
+        const oldDt=parseFixtureDateTime(fix); // compute using OLD data before overwriting
+        const newDt=new Date(m.utcDate);
         const npt=formatNPT(m.utcDate);
+        const oldDateStr=fix.date, oldTimeStr=fix.time;
+
+        fix.utcDate=m.utcDate;
         if(fix.date!==npt.date || fix.time!==npt.time){
           fix.date=npt.date; fix.time=npt.time;
         }
         metaChanged=true;
+
+        // If the corrected time differs by more than 2 days from what we had,
+        // flag it for admin review (could be a wrong match-up, not just a timezone fix)
+        if(oldDt){
+          const diffDays=Math.abs(newDt.getTime()-oldDt.getTime())/(24*60*60*1000);
+          if(diffDays>2){
+            await logAudit('fixture_edited', `⚠️ Date auto-corrected for ${fix.nA} vs ${fix.nB}: was ${oldDateStr} ${oldTimeStr} NPT → now ${npt.date} ${npt.time} NPT (${Math.round(diffDays)} days different — please verify this is the correct match)`);
+          }
+        }
       }
       if(metaChanged && m.status!=='FINISHED'){ await pushFixture(fix); }
 
@@ -4036,7 +4049,7 @@ async function renderH2H(){
     paintH2H(target, data);
   }catch(e){
     console.warn('H2H fetch failed', e.message);
-    el.innerHTML='';
+    // Don't clear existing content on a transient fetch error — leave as-is
   }
 }
 
@@ -4044,7 +4057,14 @@ function paintH2H(target, data){
   const el=document.getElementById('h2h-section');
   if(!el) return;
   const matches=(data?.matches||[]).filter(m=>m.score?.fullTime?.home!==null).slice(0,5);
-  if(!matches.length){ el.innerHTML=''; return; }
+
+  if(!matches.length){
+    el.innerHTML=`<div class="guide-card" style="margin-top:0;">
+      <div class="guide-head">🤝 Head-to-Head: ${target.nA} vs ${target.nB}</div>
+      <div style="padding:12px 14px;font-size:12px;color:var(--muted);">No previous meetings between these two teams on record.</div>
+    </div>`;
+    return;
+  }
 
   const rows=matches.map(m=>{
     const date=new Date(m.utcDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
