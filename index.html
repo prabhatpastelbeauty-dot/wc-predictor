@@ -2933,17 +2933,33 @@ function renderFixturesAdminList(){
   document.getElementById('fixtures-admin-list').innerHTML=fixtures.map((f,i)=>{
     const statusTxt = f.result ? 'Result entered' : (f.locked ? 'Locked' : 'Open for voting');
     const statusColor = f.result ? 'var(--muted)' : (f.locked ? 'var(--amber)' : 'var(--green)');
+    const lockBadge = f.dateLocked ? ` · <span style="color:var(--blue);" title="Time set manually — won't auto-update">🔒 manual time</span>` : '';
     return `<div class="member-row">
       <div class="member-av" style="background:var(--bg4);color:var(--text2);font-size:18px;">${f.fA}</div>
       <div class="member-info">
         <div class="member-nm">${f.nA} vs ${f.nB}</div>
-        <div class="member-meta">${f.stage} · ${f.date} ${f.time} · <span style="color:${statusColor}">${statusTxt}</span></div>
+        <div class="member-meta">${f.stage} · ${f.date} ${f.time} NPT · <span style="color:${statusColor}">${statusTxt}</span>${lockBadge}</div>
       </div>
+      ${f.dateLocked?`<button class="member-del" style="background:var(--green-bg);color:var(--green);width:auto;padding:0 8px;font-size:11px;font-weight:700;" onclick="reenableAutoSync('${f.id}')">Auto-sync</button>`:''}
       <button class="member-del" style="background:var(--blue-bg);color:var(--blue);" onclick="openAddFixture('${f.id}')">✏️</button>
       <button class="member-del" onclick="removeFixture('${f.id}')">✕</button>
     </div>`;
   }).join('');
 }
+
+async function reenableAutoSync(id){
+  FIXTURES=getFixtures();
+  const f=FIXTURES.find(x=>x.id===id); if(!f) return;
+  delete f.dateLocked;
+  delete f.utcDate;
+  saveFixturesLocal();
+  renderAll();
+  await pushFixture(f);
+  await logAudit('fixture_edited', `re-enabled auto time-sync for ${f.nA} vs ${f.nB}`);
+  renderAudit();
+  toast('🔄 Auto time-sync re-enabled — will update on next check');
+}
+
 
 function saveFee(){
   const fee=parseInt(document.getElementById('fee-val').value)||0;
@@ -3111,8 +3127,12 @@ async function saveFixture(){
   if(EDIT_FX_ID){
     const idx=FIXTURES.findIndex(f=>f.id===EDIT_FX_ID);
     entry={...FIXTURES[idx], stage,date,time,fA,nA,fB,nB,ko};
+    // Manual edit takes priority over API-sourced time — clear the stored
+    // API timestamp and lock this fixture's date/time from future auto-corrections.
+    delete entry.utcDate;
+    entry.dateLocked=true;
     FIXTURES[idx]=entry;
-    action='fixture_edited'; desc=`edited match: ${nA} vs ${nB}`;
+    action='fixture_edited'; desc=`edited match: ${nA} vs ${nB} (date/time set manually — auto time-sync disabled for this match)`;
   } else {
     const id='m'+Date.now();
     entry={id,stage,date,time,fA,nA,fB,nB,ko,locked:false,result:null};
@@ -3936,7 +3956,7 @@ async function fetchAutoScores(){
       let metaChanged=false;
       if(m.venue && fix.venue!==m.venue){ fix.venue=m.venue; metaChanged=true; }
       if(m.id && fix.apiMatchId!==m.id){ fix.apiMatchId=m.id; metaChanged=true; }
-      if(m.utcDate && fix.utcDate!==m.utcDate){
+      if(m.utcDate && fix.utcDate!==m.utcDate && !fix.dateLocked){
         const oldDt=parseFixtureDateTime(fix); // compute using OLD data before overwriting
         const newDt=new Date(m.utcDate);
         const npt=formatNPT(m.utcDate);
