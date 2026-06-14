@@ -129,6 +129,8 @@ body{display:flex;justify-content:center;overflow:hidden;}
 .p-open{background:var(--green-bg);color:var(--green);}
 .p-locked{background:var(--amber-bg);color:var(--amber);}
 .p-done{background:var(--bg4);color:var(--muted);}
+.p-live{background:var(--red-bg);color:var(--red);}
+.live-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--red);margin-right:4px;animation:blink 1s infinite;}
 .mc-body{display:flex;align-items:center;padding:14px 12px;gap:6px;}
 .mc-team{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;}
 .mc-flag{font-size:28px;line-height:1;}
@@ -376,15 +378,10 @@ body{display:flex;justify-content:center;overflow:hidden;}
           <div class="dash-chip" id="d-rank-chip">Rank #—</div>
         </div>
       </div>
-      <div class="stats-grid">
+      <div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">
         <div class="stat-c"><div class="stat-l">Points</div><div class="stat-v v-amber" id="d-pts">0</div></div>
         <div class="stat-c"><div class="stat-l">Rank</div><div class="stat-v v-blue" id="d-rank">#—</div></div>
         <div class="stat-c"><div class="stat-l">Exact Scores</div><div class="stat-v v-green" id="d-exact">0</div></div>
-        <div class="stat-c">
-          <div class="stat-l">Hit Rate</div>
-          <div class="stat-v v-purple" id="d-acc">—%</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;">scored any points</div>
-        </div>
       </div>
 
       <div id="reminder-banner"></div>
@@ -395,6 +392,7 @@ body{display:flex;justify-content:center;overflow:hidden;}
       <div class="sec-label">Next Match</div>
       <div id="countdown-banner"></div>
       <div id="home-next"></div>
+      <div id="h2h-section"></div>
 
       <div class="sec-label">💡 Did You Know?</div>
       <div id="daily-fact"></div>
@@ -533,6 +531,17 @@ body{display:flex;justify-content:center;overflow:hidden;}
             <div class="settings-row" style="cursor:pointer;" onclick="resetTournament()">
               <div><div class="s-label" style="color:var(--red);">🔄 Reset Scores & Results</div><div class="s-sub">Clears all results, locks & activity log — keeps fixtures, members & everyone's predictions</div></div>
             </div>
+          </div>
+
+          <div class="sec-label">Backup & Restore</div>
+          <div class="settings-group">
+            <div class="settings-row" style="cursor:pointer;" onclick="exportFullBackup()">
+              <div><div class="s-label">💾 Download Full Backup</div><div class="s-sub">Everything — members, predictions, fixtures, results, quiz answers, activity log</div></div>
+            </div>
+            <div class="settings-row" style="cursor:pointer;" onclick="document.getElementById('restore-file-input').click()">
+              <div><div class="s-label" style="color:var(--amber);">📂 Restore from Backup</div><div class="s-sub">Replaces current league data with a backup file</div></div>
+            </div>
+            <input type="file" id="restore-file-input" accept="application/json" style="display:none;" onchange="restoreFromBackup(this.files[0])">
           </div>
 
           <div class="sec-label">Auto Score Fetch <span style="font-size:10px;color:var(--muted);font-weight:400;text-transform:none;">(optional, free)</span></div>
@@ -2391,7 +2400,7 @@ async function launchApp(){
   setInterval(renderCountdown, 30000);
   setInterval(autoLockCheck, 60000); // check every minute for matches needing auto-lock
   if(ME.role==='admin'){
-    setInterval(fetchAutoScores, 15*60*1000); // every 15 min, admin-side polling
+    setInterval(smartScorePoll, 60000); // re-evaluate polling need every minute
     setTimeout(fetchAutoScores, 5000); // initial check shortly after launch
   }
   autoLockCheck();
@@ -2418,6 +2427,7 @@ function renderAll(){
   renderCountdown();
   checkPredBadge();
   renderReminderBanner();
+  renderH2H();
 }
 
 function getMembers(){
@@ -2455,7 +2465,6 @@ function renderDash(){
   document.getElementById('d-pts').textContent=s.total;
   document.getElementById('d-rank').textContent='#'+r;
   document.getElementById('d-exact').textContent=s.exact;
-  document.getElementById('d-acc').textContent=s.done?Math.round(s.correct/s.done*100)+'%':'—%';
 }
 
 function renderPool(){
@@ -2568,7 +2577,7 @@ function renderTable(){
       <div class="lb-av" style="background:${col}18;color:${col}">${ini}</div>
       <div class="lb-info">
         <div class="lb-nm">${u.name}${isMe?' <span style="font-size:10px;font-weight:500;color:var(--muted)">(you)</span>':''}${u.role==='admin'?' <span style="font-size:10px;font-weight:500;color:var(--amber)">★ admin</span>':''}</div>
-        <div class="lb-det">${u.exact} exact · ${u.done?Math.round(u.correct/u.done*100):0}% hit rate</div>
+        <div class="lb-det">${u.exact} exact score${u.exact!==1?'s':''} · ${u.done} match${u.done!==1?'es':''} scored</div>
       </div>
       <div class="lb-pts">${u.total}</div>
     </div>`;
@@ -2709,7 +2718,7 @@ function renderMyPredictions(){
       resultHTML=`<div style="font-size:12px;color:var(--muted);margin-top:4px;">${f.locked?'🔒 Awaiting result':'Pending — match not played yet'}</div>`;
     }
     return `<div class="mc" style="margin:0 12px 10px;">
-      <div class="mc-top"><span class="mc-stage">${f.stage}</span><span class="mc-dt">${f.date} · ${f.time}</span></div>
+      <div class="mc-top"><span class="mc-stage">${f.stage}</span><span class="mc-dt">${f.date} · ${f.time} NPT</span></div>
       <div style="padding:12px 14px;display:flex;align-items:center;gap:10px;">
         <div style="flex:1;">
           <div style="font-size:13px;font-weight:700;">${f.fA} ${f.nA} vs ${f.fB} ${f.nB}</div>
@@ -3199,6 +3208,9 @@ function buildMC(fix){
     pill = isOldMatch(fix)
       ? `<span class="pill p-done" style="cursor:pointer;" onclick="toggleOldMatch('${fix.id}')">▲ Collapse</span>`
       : `<span class="pill p-done">FT</span>`;
+  } else if(fix.live){
+    ctr=`<div class="mc-score" style="color:var(--red);"><span class="live-dot"></span>${fix.live.sA}–${fix.live.sB}</div>`;
+    pill=`<span class="pill p-live"><span class="live-dot"></span>LIVE</span>`;
   } else if(fix.locked){
     ctr=`<div class="mc-vs">vs</div>`;
     pill=`<span class="pill p-locked">🔒 Locked</span>`;
@@ -3281,8 +3293,11 @@ function buildMC(fix){
     }
   }
 
+  const venueRow = fix.venue ? `<div style="padding:6px 14px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);background:var(--bg3);">📍 ${fix.venue}</div>` : '';
+
   return `<div class="mc">
-    <div class="mc-top"><span class="mc-stage">${fix.stage}</span><span class="mc-dt">${fix.date} · ${fix.time}</span>${pill}</div>
+    <div class="mc-top"><span class="mc-stage">${fix.stage}</span><span class="mc-dt">${fix.date} · ${fix.time} NPT</span>${pill}</div>
+    ${venueRow}
     <div class="mc-body">
       <div class="mc-team"><div class="mc-flag">${fix.fA}</div><div class="mc-name">${fix.nA}</div></div>
       <div class="mc-mid">${ctr}</div>
@@ -3409,10 +3424,9 @@ async function saveResult(){
 // ══════════════════════════════════════════════════════
 function exportResultsCSV(){
   const sorted=getSorted();
-  let csv='Rank,Name,Username,Points,Exact Scores,Correct Predictions,Matches Scored,Hit Rate %\n';
+  let csv='Rank,Name,Username,Points,Exact Scores,Correct Predictions,Matches Scored\n';
   sorted.forEach((u,i)=>{
-    const acc=u.done?Math.round(u.correct/u.done*100):0;
-    csv+=`${i+1},"${u.name}",${u.username},${u.total},${u.exact},${u.correct},${u.done},${acc}\n`;
+    csv+=`${i+1},"${u.name}",${u.username},${u.total},${u.exact},${u.correct},${u.done}\n`;
   });
   const blob=new Blob([csv],{type:'text/csv'});
   const url=URL.createObjectURL(blob);
@@ -3589,9 +3603,28 @@ function toggleTheme(){
 //  MATCH COUNTDOWN TIMER
 // ══════════════════════════════════════════════════════
 const MONTH_MAP={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+const MONTH_NAMES=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const NPT_OFFSET_MS=(5*60+45)*60*1000; // Nepal Standard Time = UTC+5:45
+
+// Converts a UTC ISO date string (from football-data.org) into Nepal-time
+// date/time strings matching our fixture format, e.g. {date:'15 Jun', time:'23:45'}
+function formatNPT(utcDateStr){
+  const utc=new Date(utcDateStr);
+  const npt=new Date(utc.getTime()+NPT_OFFSET_MS);
+  const day=npt.getUTCDate();
+  const month=MONTH_NAMES[npt.getUTCMonth()];
+  const hh=String(npt.getUTCHours()).padStart(2,'0');
+  const mm=String(npt.getUTCMinutes()).padStart(2,'0');
+  return {date:`${day} ${month}`, time:`${hh}:${mm}`};
+}
 
 function parseFixtureDateTime(fix){
-  // date like "12 Jun", time like "00:45" — these are in Nepal Standard Time (UTC+5:45)
+  // Prefer the authoritative kickoff time from the API if we have it
+  if(fix.utcDate){
+    const d=new Date(fix.utcDate);
+    if(!isNaN(d.getTime())) return d;
+  }
+  // Fallback: date like "12 Jun", time like "00:45" — assumed Nepal Standard Time (UTC+5:45)
   const parts=(fix.date||'').trim().split(/\s+/);
   if(parts.length<2) return null;
   const day=parseInt(parts[0]);
@@ -3599,8 +3632,7 @@ function parseFixtureDateTime(fix){
   if(isNaN(day)||month===undefined) return null;
   const [hh,mm]=(fix.time||'00:00').split(':').map(Number);
   if(isNaN(hh)||isNaN(mm)) return null;
-  // Build as UTC, then subtract NST offset (+5:45) to get true UTC instant
-  const utcMs = Date.UTC(2026, month, day, hh, mm, 0) - (5*60+45)*60*1000;
+  const utcMs = Date.UTC(2026, month, day, hh, mm, 0) - NPT_OFFSET_MS;
   return new Date(utcMs);
 }
 
@@ -3632,11 +3664,15 @@ function renderCountdown(){
     else { label=`Kicks off in ${mins}m`; urgent = mins<=60; }
   }
 
+  const nptTime = dt ? formatNPT(dt.toISOString()) : null;
+  const timeStr = nptTime ? `${nptTime.date}, ${nptTime.time} NPT` : '';
+
   el.innerHTML=`<div class="mc" style="margin:0 12px 10px;background:${urgent?'var(--red-bg)':'var(--pitch)'};border:none;">
     <div style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;">
       <div>
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:${urgent?'var(--red)':'rgba(255,255,255,.5)'};">${target.fA} ${target.nA} vs ${target.nB} ${target.fB}</div>
         <div style="font-size:16px;font-weight:800;color:${urgent?'var(--red)':'#fff'};margin-top:4px;">${label}</div>
+        ${timeStr?`<div style="font-size:11px;color:${urgent?'rgba(255,255,255,.6)':'rgba(255,255,255,.4)'};margin-top:3px;">${timeStr}</div>`:''}
       </div>
       <div style="font-size:28px;">⏱️</div>
     </div>
@@ -3840,6 +3876,14 @@ async function fetchScoresAPI(key, status){
   return data;
 }
 
+async function fetchH2HAPI(key, apiMatchId){
+  const res = await withTimeout(fetch(`/api/scores?key=${encodeURIComponent(key)}&type=h2h&matchId=${encodeURIComponent(apiMatchId)}`), 15000);
+  const data = await safeJson(res);
+  if(!res.ok) throw new Error(data.error || data.message || ('HTTP '+res.status));
+  if(data.error) throw new Error(data.error);
+  return data;
+}
+
 async function saveFootballDataKey(){
   const key=document.getElementById('fd-key-inp').value.trim();
   const st=document.getElementById('fd-status');
@@ -3875,40 +3919,232 @@ async function fetchAutoScores(){
   const key=LS.get('wcp_fd_key');
   if(!key) return 0;
   try{
-    const data=await fetchScoresAPI(key, 'FINISHED');
+    const data=await fetchScoresAPI(key); // no status filter — get everything
     if(!data.matches) return 0;
     FIXTURES=getFixtures();
     let updated=0;
+    let liveChanged=false;
+
     for(const m of data.matches){
-      if(m.status!=='FINISHED') continue;
       const homeName=m.homeTeam?.name||m.homeTeam?.shortName||'';
       const awayName=m.awayTeam?.name||m.awayTeam?.shortName||'';
-      const hs=m.score?.fullTime?.home, as=m.score?.fullTime?.away;
-      if(hs===null||hs===undefined||as===null||as===undefined) continue;
-
       const fix=FIXTURES.find(f=>!f.result && teamsMatch(f.nA,homeName) && teamsMatch(f.nB,awayName));
       if(!fix) continue;
 
-      let penWinner=null;
-      if(m.score?.penalties && m.score.penalties.home!==null){
-        penWinner = m.score.penalties.home > m.score.penalties.away ? 'A' : 'B';
+      // Capture venue, API match id, and the AUTHORITATIVE kickoff time
+      // (corrects any wrong/timezone-mismatched dates from the original spreadsheet)
+      let metaChanged=false;
+      if(m.venue && fix.venue!==m.venue){ fix.venue=m.venue; metaChanged=true; }
+      if(m.id && fix.apiMatchId!==m.id){ fix.apiMatchId=m.id; metaChanged=true; }
+      if(m.utcDate && fix.utcDate!==m.utcDate){
+        fix.utcDate=m.utcDate;
+        const npt=formatNPT(m.utcDate);
+        if(fix.date!==npt.date || fix.time!==npt.time){
+          fix.date=npt.date; fix.time=npt.time;
+        }
+        metaChanged=true;
       }
-      fix.result={sA:hs, sB:as, penWinner, done:true};
-      fix.locked=true;
-      updated++;
-      await pushFixture(fix);
-      await logAudit('result_entered', `auto-fetched result: ${fix.nA} ${hs}-${as} ${fix.nB}${penWinner?` (pens: ${penWinner==='A'?fix.nA:fix.nB})`:''}`);
+      if(metaChanged && m.status!=='FINISHED'){ await pushFixture(fix); }
+
+      if(m.status==='FINISHED'){
+        const hs=m.score?.fullTime?.home, as=m.score?.fullTime?.away;
+        if(hs===null||hs===undefined||as===null||as===undefined) continue;
+        let penWinner=null;
+        if(m.score?.penalties && m.score.penalties.home!==null){
+          penWinner = m.score.penalties.home > m.score.penalties.away ? 'A' : 'B';
+        }
+        fix.result={sA:hs, sB:as, penWinner, done:true};
+        fix.locked=true;
+        delete fix.live;
+        updated++;
+        await pushFixture(fix);
+        await logAudit('result_entered', `auto-fetched result: ${fix.nA} ${hs}-${as} ${fix.nB}${penWinner?` (pens: ${penWinner==='A'?fix.nA:fix.nB})`:''}`);
+      } else if(m.status==='IN_PLAY' || m.status==='PAUSED'){
+        const hs=m.score?.fullTime?.home ?? 0, as=m.score?.fullTime?.away ?? 0;
+        const prev=fix.live;
+        if(!prev || prev.sA!==hs || prev.sB!==as){
+          fix.live={sA:hs, sB:as};
+          liveChanged=true;
+          await pushFixture(fix);
+        }
+      } else if(fix.live){
+        // match no longer live (e.g. scheduled/postponed) and no result yet — clear stale live data
+        delete fix.live;
+        liveChanged=true;
+        await pushFixture(fix);
+      }
     }
-    if(updated>0){
+    if(updated>0||liveChanged){
       saveFixturesLocal();
       renderAll();
-      renderAudit();
+      if(updated>0) renderAudit();
     }
     return updated;
   }catch(e){
     console.error('auto score fetch failed',e);
     return 0;
   }
+}
+
+// ══════════════════════════════════════════════════════
+//  SMART SCORE POLLING — faster when a match is near/live
+// ══════════════════════════════════════════════════════
+let LAST_SCORE_POLL=0;
+function smartScorePoll(){
+  const fixtures=getFixtures();
+  const now=Date.now();
+  const hasActiveMatch = fixtures.some(f=>{
+    if(f.result) return false;
+    const dt=parseFixtureDateTime(f);
+    if(!dt) return false;
+    const diff=now-dt.getTime();
+    // from kickoff time to 2.5 hours after — likely live or about to be
+    return diff > -10*60*1000 && diff < 2.5*60*60*1000;
+  });
+  const interval = hasActiveMatch ? 3*60*1000 : 15*60*1000;
+  if(now-LAST_SCORE_POLL >= interval){
+    LAST_SCORE_POLL=now;
+    fetchAutoScores();
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  HEAD-TO-HEAD HISTORY (for the next/pinned match)
+// ══════════════════════════════════════════════════════
+const H2H_CACHE_MS = 12*60*60*1000; // 12 hours
+
+async function renderH2H(){
+  const el=document.getElementById('h2h-section');
+  if(!el) return;
+  const fixtures=getFixtures();
+  const pinned=fixtures.find(f=>f.pinned && !f.result);
+  const target=pinned || fixtures.find(f=>!f.result);
+  if(!target || !target.apiMatchId){ el.innerHTML=''; return; }
+
+  const cacheKey='wcp_h2h_'+target.id;
+  const cache=LS.get(cacheKey);
+  if(cache && cache.apiMatchId===target.apiMatchId && (Date.now()-cache.ts)<H2H_CACHE_MS){
+    paintH2H(target, cache.data);
+    return;
+  }
+
+  const key=LS.get('wcp_fd_key');
+  if(!key){ el.innerHTML=''; return; }
+  try{
+    const data=await fetchH2HAPI(key, target.apiMatchId);
+    LS.set(cacheKey, {ts:Date.now(), apiMatchId:target.apiMatchId, data});
+    paintH2H(target, data);
+  }catch(e){
+    console.warn('H2H fetch failed', e.message);
+    el.innerHTML='';
+  }
+}
+
+function paintH2H(target, data){
+  const el=document.getElementById('h2h-section');
+  if(!el) return;
+  const matches=(data?.matches||[]).filter(m=>m.score?.fullTime?.home!==null).slice(0,5);
+  if(!matches.length){ el.innerHTML=''; return; }
+
+  const rows=matches.map(m=>{
+    const date=new Date(m.utcDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const home=m.homeTeam?.shortName||m.homeTeam?.name||'?';
+    const away=m.awayTeam?.shortName||m.awayTeam?.name||'?';
+    const hs=m.score.fullTime.home, as=m.score.fullTime.away;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;">
+      <span style="color:var(--muted);">${date}</span>
+      <span style="font-weight:600;color:var(--text2);">${home} <span style="font-weight:800;color:var(--text);">${hs}–${as}</span> ${away}</span>
+    </div>`;
+  }).join('');
+
+  el.innerHTML=`<div class="guide-card" style="margin-top:0;">
+    <div class="guide-head">🤝 Head-to-Head: ${target.nA} vs ${target.nB}</div>
+    <div style="padding:4px 14px 8px;">${rows}</div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════
+//  BACKUP & RESTORE — full league data export/import
+// ══════════════════════════════════════════════════════
+function exportFullBackup(){
+  FIXTURES=getFixtures();
+  const backup={
+    _type:'wcp_backup',
+    _version:1,
+    exportedAt:new Date().toISOString(),
+    league:LEAGUE,
+    members:getMembers().map(m=>({...m})),
+    fixtures:FIXTURES,
+    audit:AUDIT
+  };
+  const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+  a.href=url; a.download=`${LEAGUE.code}_backup_${stamp}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('💾 Backup downloaded!');
+}
+
+async function restoreFromBackup(file){
+  if(!file) return;
+  if(!confirm('This will REPLACE all current league data (members, predictions, fixtures, results, activity log) with the contents of this backup file.\n\nThis cannot be undone. Continue?')) {
+    document.getElementById('restore-file-input').value='';
+    return;
+  }
+  try{
+    const text=await file.text();
+    const data=JSON.parse(text);
+    if(data._type!=='wcp_backup'){ toast('❌ Not a valid backup file'); return; }
+    if(!data.league || !data.fixtures || !data.members){ toast('❌ Backup file is missing data'); return; }
+    if(data.league.code !== LEAGUE.code){
+      if(!confirm(`This backup is for league "${data.league.code}", but you're logged into "${LEAGUE.code}". Restore anyway?`)) return;
+    }
+
+    toast('⏳ Restoring...');
+
+    // Apply locally
+    LEAGUE = {...LEAGUE, ...data.league, code:LEAGUE.code}; // keep current league code
+    LS.set('wcp_league', LEAGUE);
+    const lg=LS.get('wcp_lg_'+LEAGUE.code);
+    if(lg){ lg.fee=LEAGUE.fee; lg.currency=LEAGUE.currency; lg.name=LEAGUE.name; LS.set('wcp_lg_'+LEAGUE.code,lg); }
+
+    FIXTURES = data.fixtures.map(f=>({...f}));
+    saveFixturesLocal();
+
+    MEMBERS = data.members.map(m=>({...m, league_code:LEAGUE.code}));
+    // update ME if present in restored members
+    const meRestored=MEMBERS.find(m=>m.id===ME.id);
+    if(meRestored){
+      ME = {...ME, preds:meRestored.preds||{}, quizAnswers:meRestored.quizAnswers||meRestored.quiz_answers||{}};
+      LS.set('wcp_me_'+ME.id, ME);
+    }
+
+    AUDIT = data.audit||[];
+
+    // Push everything to Supabase if connected
+    if(SB){
+      for(const fx of FIXTURES) await pushFixture(fx);
+      for(const m of MEMBERS) await pushMember(m);
+      await pushLeague();
+      try{
+        await withTimeout(SB.from('audit_log').delete().eq('league_code',LEAGUE.code), 8000);
+        for(const a of AUDIT.slice(0,50).reverse()){
+          await withTimeout(SB.from('audit_log').insert({league_code:LEAGUE.code, actor:a.actor, action:a.action, detail:a.detail, ts:a.ts}), 8000);
+        }
+      }catch(e){ console.error('audit restore error',e); }
+    }
+
+    renderAll();
+    await logAudit('league_created', `restored league data from backup (exported ${new Date(data.exportedAt).toLocaleString()})`);
+    renderAudit();
+    toast('✅ Backup restored successfully!');
+  }catch(e){
+    console.error(e);
+    toast('❌ Could not read backup file: '+e.message);
+  }
+  document.getElementById('restore-file-input').value='';
 }
 
 // ══════════════════════════════════════════════════════
