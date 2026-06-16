@@ -2362,7 +2362,23 @@ async function pullEverything(){
 async function pushMyPreds(){
   if(!SB||!LEAGUE||!ME) return;
   try{
-    await withTimeout(SB.from('players').upsert({id:ME.id,name:ME.name,username:ME.username,pin:ME.pin,role:ME.role,playing:ME.playing,league_code:LEAGUE.code,preds:ME.preds||{},quiz_answers:ME.quizAnswers||{}},{onConflict:'id'}), 8000);
+    // MERGE, never overwrite: pull the latest server-side preds first and
+    // combine with our local ones. This prevents a stale local copy (e.g.
+    // this device hasn't synced in a while) from wiping out predictions
+    // that were added elsewhere (another device, or an admin correction)
+    // in the meantime.
+    let merged = ME.preds||{};
+    try{
+      const {data:existing} = await withTimeout(SB.from('players').select('preds').eq('id',ME.id).single(), 6000);
+      if(existing && existing.preds){
+        merged = {...existing.preds, ...ME.preds}; // local edits win for any match both sides have
+      }
+    }catch(e){ /* no existing record yet — fine, proceed with local only */ }
+
+    ME.preds = merged;
+    LS.set('wcp_me_'+ME.id, ME);
+
+    await withTimeout(SB.from('players').upsert({id:ME.id,name:ME.name,username:ME.username,pin:ME.pin,role:ME.role,playing:ME.playing,league_code:LEAGUE.code,preds:merged,quiz_answers:ME.quizAnswers||{}},{onConflict:'id'}), 8000);
     setSyncUI('ok','Synced');
   }catch(e){ setSyncUI('err','Push failed'); }
 }
@@ -2383,21 +2399,20 @@ async function deleteFixtureRemote(id){
 async function pushMember(member){
   if(!SB||!LEAGUE) return;
   try{
-    // Safety net: if we're about to push noticeably FEWER predictions than
-    // what's already saved for this person, something upstream is stale —
-    // refuse the overwrite rather than silently erasing their picks.
-    const incomingCount=Object.keys(member.preds||{}).length;
+    // MERGE, never overwrite: combine with whatever is already saved for this
+    // person so we never lose predictions that exist server-side but aren't
+    // in our local copy (e.g. they were added on their own device, or by an
+    // admin correction, since we last fetched).
+    let merged = member.preds||{};
     try{
-      const {data:existing}=await withTimeout(SB.from('players').select('preds').eq('id',member.id).single(), 6000);
-      const existingCount=existing ? Object.keys(existing.preds||{}).length : 0;
-      if(existingCount>0 && incomingCount < existingCount - 1){
-        console.warn(`Refused to push stale data for ${member.name}: incoming ${incomingCount} preds vs existing ${existingCount}`);
-        toast(`⚠️ Skipped saving — ${member.name}'s data looked out of date. No changes made.`);
-        return;
+      const {data:existing} = await withTimeout(SB.from('players').select('preds').eq('id',member.id).single(), 6000);
+      if(existing && existing.preds){
+        merged = {...existing.preds, ...member.preds}; // our incoming edits win per-match, but nothing is dropped
       }
-    }catch(e){ /* existing record may not exist yet — that's fine, proceed */ }
+    }catch(e){ /* no existing record yet — fine, proceed with what we have */ }
 
-    await withTimeout(SB.from('players').upsert({id:member.id,name:member.name,username:member.username,pin:member.pin,role:member.role,playing:member.playing,league_code:LEAGUE.code,preds:member.preds||{},quiz_answers:member.quizAnswers||{}},{onConflict:'id'}), 8000);
+    member.preds = merged;
+    await withTimeout(SB.from('players').upsert({id:member.id,name:member.name,username:member.username,pin:member.pin,role:member.role,playing:member.playing,league_code:LEAGUE.code,preds:merged,quiz_answers:member.quizAnswers||{}},{onConflict:'id'}), 8000);
   }catch(e){ console.error(e); }
 }
 async function deleteMemberRemote(id){
