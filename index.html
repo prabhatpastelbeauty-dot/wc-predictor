@@ -2362,23 +2362,26 @@ async function pullEverything(){
 async function pushMyPreds(){
   if(!SB||!LEAGUE||!ME) return;
   try{
-    // MERGE, never overwrite: pull the latest server-side preds first and
-    // combine with our local ones. This prevents a stale local copy (e.g.
-    // this device hasn't synced in a while) from wiping out predictions
-    // that were added elsewhere (another device, or an admin correction)
-    // in the meantime.
-    let merged = ME.preds||{};
+    // MERGE, never overwrite: pull the latest server-side preds AND quiz
+    // answers first, combine with our local ones. This prevents a stale
+    // local copy (e.g. this device hasn't synced in a while) from wiping
+    // out data that was added elsewhere (another device, or an admin
+    // correction) in the meantime.
+    let mergedPreds = ME.preds||{};
+    let mergedQuiz = ME.quizAnswers||{};
     try{
-      const {data:existing} = await withTimeout(SB.from('players').select('preds').eq('id',ME.id).single(), 6000);
-      if(existing && existing.preds){
-        merged = {...existing.preds, ...ME.preds}; // local edits win for any match both sides have
+      const {data:existing} = await withTimeout(SB.from('players').select('preds,quiz_answers').eq('id',ME.id).single(), 6000);
+      if(existing){
+        if(existing.preds) mergedPreds = {...existing.preds, ...ME.preds};
+        if(existing.quiz_answers) mergedQuiz = {...existing.quiz_answers, ...ME.quizAnswers};
       }
     }catch(e){ /* no existing record yet — fine, proceed with local only */ }
 
-    ME.preds = merged;
+    ME.preds = mergedPreds;
+    ME.quizAnswers = mergedQuiz;
     LS.set('wcp_me_'+ME.id, ME);
 
-    await withTimeout(SB.from('players').upsert({id:ME.id,name:ME.name,username:ME.username,pin:ME.pin,role:ME.role,playing:ME.playing,league_code:LEAGUE.code,preds:merged,quiz_answers:ME.quizAnswers||{}},{onConflict:'id'}), 8000);
+    await withTimeout(SB.from('players').upsert({id:ME.id,name:ME.name,username:ME.username,pin:ME.pin,role:ME.role,playing:ME.playing,league_code:LEAGUE.code,preds:mergedPreds,quiz_answers:mergedQuiz},{onConflict:'id'}), 8000);
     setSyncUI('ok','Synced');
   }catch(e){ setSyncUI('err','Push failed'); }
 }
@@ -2400,19 +2403,22 @@ async function pushMember(member){
   if(!SB||!LEAGUE) return;
   try{
     // MERGE, never overwrite: combine with whatever is already saved for this
-    // person so we never lose predictions that exist server-side but aren't
-    // in our local copy (e.g. they were added on their own device, or by an
-    // admin correction, since we last fetched).
-    let merged = member.preds||{};
+    // person so we never lose data that exists server-side but isn't in our
+    // local copy (e.g. it was added on their own device, or by an admin
+    // correction, since we last fetched).
+    let mergedPreds = member.preds||{};
+    let mergedQuiz = member.quizAnswers||{};
     try{
-      const {data:existing} = await withTimeout(SB.from('players').select('preds').eq('id',member.id).single(), 6000);
-      if(existing && existing.preds){
-        merged = {...existing.preds, ...member.preds}; // our incoming edits win per-match, but nothing is dropped
+      const {data:existing} = await withTimeout(SB.from('players').select('preds,quiz_answers').eq('id',member.id).single(), 6000);
+      if(existing){
+        if(existing.preds) mergedPreds = {...existing.preds, ...member.preds};
+        if(existing.quiz_answers) mergedQuiz = {...existing.quiz_answers, ...member.quizAnswers};
       }
     }catch(e){ /* no existing record yet — fine, proceed with what we have */ }
 
-    member.preds = merged;
-    await withTimeout(SB.from('players').upsert({id:member.id,name:member.name,username:member.username,pin:member.pin,role:member.role,playing:member.playing,league_code:LEAGUE.code,preds:merged,quiz_answers:member.quizAnswers||{}},{onConflict:'id'}), 8000);
+    member.preds = mergedPreds;
+    member.quizAnswers = mergedQuiz;
+    await withTimeout(SB.from('players').upsert({id:member.id,name:member.name,username:member.username,pin:member.pin,role:member.role,playing:member.playing,league_code:LEAGUE.code,preds:mergedPreds,quiz_answers:mergedQuiz},{onConflict:'id'}), 8000);
   }catch(e){ console.error(e); }
 }
 async function deleteMemberRemote(id){
@@ -3841,7 +3847,7 @@ async function answerQuiz(qid, optionIdx){
   LS.set('wcp_me_'+ME.id, ME);
   renderQuiz();
   if(SB&&LEAGUE){
-    try{ await withTimeout(SB.from('players').upsert({id:ME.id,name:ME.name,username:ME.username,pin:ME.pin,role:ME.role,playing:ME.playing,league_code:LEAGUE.code,preds:ME.preds||{},quiz_answers:ME.quizAnswers},{onConflict:'id'}), 8000); }catch(e){}
+    await pushMyPreds(); // uses the safe merge logic, never overwrites preds with a stale copy
     await pullEverything();
     renderQuiz();
   }
