@@ -210,6 +210,16 @@ body{display:flex;justify-content:center;overflow:hidden;}
 .member-pin{font-size:12px;font-weight:700;color:var(--green);background:var(--green-bg);padding:3px 8px;border-radius:6px;}
 .member-del{width:30px;height:30px;border-radius:8px;background:var(--red-bg);color:var(--red);border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
 
+/* FIX PREDICTIONS MODAL ROWS */
+.fixpred-row{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:12px;}
+.fixpred-match{font-size:12px;font-weight:700;margin-bottom:2px;}
+.fixpred-meta{font-size:10px;color:var(--muted);margin-bottom:8px;}
+.fixpred-inputs{display:flex;align-items:center;gap:8px;}
+.fixpred-num{width:44px;height:38px;background:var(--bg2);border:1.5px solid var(--border2);border-radius:8px;color:var(--text);font-size:16px;font-weight:700;text-align:center;font-family:inherit;outline:none;}
+.fixpred-num:focus{border-color:var(--amber);}
+.fixpred-save{padding:0 12px;height:38px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;}
+.fixpred-result{font-size:10px;color:var(--muted);margin-left:auto;}
+
 /* AUDIT LOG */
 .audit-row{display:flex;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);}
 .audit-row:last-child{border-bottom:none;}
@@ -518,6 +528,7 @@ body{display:flex;justify-content:center;overflow:hidden;}
         <div id="admin-only-sections" style="display:none;">
 
           <div class="sec-label">Members <span class="sec-label-action" onclick="openAddMember()">+ Add Member</span></div>
+          <div style="margin:0 12px 12px;font-size:11px;color:var(--muted);line-height:1.4;">Tap 🎯 on any member to view or correct their predictions — including for matches already finished.</div>
           <div class="settings-group" id="members-list"></div>
 
           <div class="sec-label">Fixtures <span class="sec-label-action" onclick="openAddFixture()">+ Add Match</span></div>
@@ -724,6 +735,17 @@ body{display:flex;justify-content:center;overflow:hidden;}
       <button class="btn btn-green" onclick="saveMember()" id="mem-save-btn">Add Member</button>
       <button class="btn btn-outline" onclick="closeMemModal()">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- ══════ FIX PREDICTIONS MODAL (admin override, works on locked/finished matches) ══════ -->
+<div class="modal-bg" id="fixpred-modal" onclick="bgCloseFixPred(event)">
+  <div class="modal-sheet">
+    <div class="drag-pill"></div>
+    <div class="mod-title" id="fixpred-title">Fix Predictions</div>
+    <div class="mod-sub">Admin override — works even on locked or finished matches</div>
+    <div id="fixpred-list" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow-y:auto;"></div>
+    <button class="btn btn-outline" style="margin-top:14px;" onclick="closeFixPredModal()">Close</button>
   </div>
 </div>
 
@@ -3022,6 +3044,7 @@ function renderMembersList(){
       </div>
       <div class="member-pin">PIN ${m.pin}</div>
       <button class="member-del" style="background:var(--blue-bg);color:var(--blue);width:auto;padding:0 8px;font-size:11px;font-weight:700;" onclick="openAddMember('${m.id}')">Edit</button>
+      <button class="member-del" style="background:var(--amber-bg);color:var(--amber);width:auto;padding:0 8px;font-size:11px;font-weight:700;" onclick="openFixPredictions('${m.id}')" title="View/correct predictions">🎯</button>
       ${canPromote?`<button class="member-del" style="background:var(--amber-bg);color:var(--amber);width:auto;padding:0 8px;font-size:11px;font-weight:700;" onclick="toggleAdminRole('${m.id}',true)">Make Admin</button>`:''}
       ${canDemote?`<button class="member-del" style="background:var(--bg4);color:var(--text2);width:auto;padding:0 8px;font-size:11px;font-weight:700;" onclick="toggleAdminRole('${m.id}',false)">Remove Admin</button>`:''}
       ${canDel?`<button class="member-del" onclick="removeMember('${m.id}')">✕</button>`:''}
@@ -3207,8 +3230,98 @@ async function removeMember(id){
 }
 
 // ══════════════════════════════════════════════════════
-//  FIXTURE MANAGEMENT (admin)
+//  FIX PREDICTIONS (admin override — edit anyone's pick,
+//  even for locked or finished matches, to correct sync errors)
 // ══════════════════════════════════════════════════════
+let FIXPRED_MEMBER_ID=null;
+
+async function openFixPredictions(memberId){
+  FIXPRED_MEMBER_ID=memberId;
+  let member = memberId===ME.id ? ME : MEMBERS.find(m=>m.id===memberId);
+  if(!member){ toast('Member not found'); return; }
+
+  // Always pull this member's freshest data first, so we're editing real current state
+  if(SB && memberId!==ME.id){
+    try{
+      const {data:fresh}=await withTimeout(SB.from('players').select('*').eq('id',memberId).single(), 8000);
+      if(fresh){
+        member={...member, preds:fresh.preds||{}};
+        const idx=MEMBERS.findIndex(m=>m.id===memberId);
+        if(idx>-1) MEMBERS[idx]=member;
+      }
+    }catch(e){ console.error('Could not refresh member before editing predictions',e); }
+  }
+
+  document.getElementById('fixpred-title').textContent=`Fix ${member.name}'s Predictions`;
+  renderFixPredList(member);
+  document.getElementById('fixpred-modal').classList.add('on');
+}
+
+function renderFixPredList(member){
+  const fixtures=getFixtures();
+  const preds=member.preds||{};
+  document.getElementById('fixpred-list').innerHTML = fixtures.map(f=>{
+    const p=preds[f.id];
+    let resultTxt='';
+    if(f.result){
+      resultTxt=`Result: ${f.result.sA}–${f.result.sB}${f.result.penWinner?` (${f.result.penWinner==='A'?f.nA:f.nB} pens)`:''}`;
+    } else if(f.locked){
+      resultTxt='Locked, no result yet';
+    }
+    return `<div class="fixpred-row">
+      <div class="fixpred-match">${f.fA} ${f.nA} vs ${f.nB} ${f.fB}</div>
+      <div class="fixpred-meta">${f.stage} · ${f.date} ${f.time} NPT</div>
+      <div class="fixpred-inputs">
+        <input class="fixpred-num" id="fp-sA-${f.id}" type="number" min="0" max="20" value="${p?p.sA:''}" placeholder="–">
+        <span style="font-weight:800;color:var(--muted2);">:</span>
+        <input class="fixpred-num" id="fp-sB-${f.id}" type="number" min="0" max="20" value="${p?p.sB:''}" placeholder="–">
+        ${f.ko?`<select id="fp-pen-${f.id}" style="height:38px;border-radius:8px;border:1.5px solid var(--border2);background:var(--bg2);color:var(--text);font-size:11px;padding:0 6px;">
+          <option value="">No pens</option>
+          <option value="A" ${p?.pen==='A'?'selected':''}>${f.nA} on pens</option>
+          <option value="B" ${p?.pen==='B'?'selected':''}>${f.nB} on pens</option>
+        </select>`:''}
+        <button class="fixpred-save" onclick="saveFixPred('${f.id}')">Save</button>
+        <span class="fixpred-result">${resultTxt}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function saveFixPred(fixtureId){
+  const sAEl=document.getElementById(`fp-sA-${fixtureId}`);
+  const sBEl=document.getElementById(`fp-sB-${fixtureId}`);
+  const penEl=document.getElementById(`fp-pen-${fixtureId}`);
+  const sA=sAEl.value===''?null:parseInt(sAEl.value);
+  const sB=sBEl.value===''?null:parseInt(sBEl.value);
+  if(sA===null||sB===null||isNaN(sA)||isNaN(sB)){ toast('Enter both scores'); return; }
+
+  let member = FIXPRED_MEMBER_ID===ME.id ? ME : MEMBERS.find(m=>m.id===FIXPRED_MEMBER_ID);
+  if(!member){ toast('Member not found'); return; }
+  const fix=getFixtures().find(f=>f.id===fixtureId);
+  const pen = (fix?.ko && penEl && penEl.value) ? penEl.value : null;
+
+  if(!member.preds) member.preds={};
+  member.preds[fixtureId]={sA,sB,pen};
+
+  if(FIXPRED_MEMBER_ID===ME.id){
+    ME.preds=member.preds;
+    LS.set('wcp_me_'+ME.id, ME);
+  }
+
+  await pushMember(member);
+  await logAudit('result_entered', `admin corrected ${member.name}'s prediction for ${fix?fix.nA+' vs '+fix.nB:fixtureId}: ${sA}–${sB}${pen?` (${pen==='A'?fix.nA:fix.nB} pens)`:''}`);
+  renderAudit();
+  renderAll();
+  toast(`✅ Saved ${member.name}'s pick`);
+}
+
+function closeFixPredModal(){
+  document.getElementById('fixpred-modal').classList.remove('on');
+  FIXPRED_MEMBER_ID=null;
+}
+function bgCloseFixPred(e){ if(e.target.id==='fixpred-modal') closeFixPredModal(); }
+
+
 function openAddFixture(id){
   EDIT_FX_ID=id||null;
   if(id){
