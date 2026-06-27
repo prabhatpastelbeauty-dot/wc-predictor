@@ -2346,10 +2346,27 @@ async function pullEverything(){
     }
     const {data:fx} = await SB.from('fixtures').select('*').eq('league_code',LEAGUE.code).order('order_idx',{ascending:true});
     if(fx && fx.length){
-      FIXTURES = fx.map(f=>({...f.data, id:f.id}));
+      // Base is always our authoritative DEFAULT_FIXTURES (teams, dates, times never come from DB).
+      // We only pull result/locked/live/pinned/venue/apiMatchId from Supabase — the mutable match state.
+      // This means a Supabase reset or stale data can never corrupt fixture details or re-apply old results.
+      const BASE = DEFAULT_FIXTURES.map(f=>({...f}));
+      const serverById = {};
+      fx.forEach(f=>{ serverById[f.id] = f.data||{}; });
+      FIXTURES = BASE.map(baseFix=>{
+        const srv = serverById[baseFix.id]||{};
+        return {
+          ...baseFix,                          // clean base: teams, date, time, stage, ko flag
+          result:    srv.result    || null,    // mutable state from server
+          locked:    srv.locked    || false,
+          live:      srv.live      || null,
+          pinned:    srv.pinned    || false,
+          venue:     srv.venue     || null,
+          apiMatchId:srv.apiMatchId|| null,
+        };
+      });
       saveFixturesLocal();
     } else if(!FIXTURES.length){
-      FIXTURES = getFixtures();
+      FIXTURES = DEFAULT_FIXTURES.map(f=>({...f}));
     }
     const {data:audit} = await SB.from('audit_log').select('*').eq('league_code',LEAGUE.code).order('ts',{ascending:false}).limit(50);
     if(audit) AUDIT = audit;
